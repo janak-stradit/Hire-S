@@ -1,6 +1,0 @@
-INFO:     127.0.0.1:59024 - "POST /api/auth/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59024 - "GET /api/excel-intake/batches/latest?requirement_id=REQ-DEVOPS-ENGINEER-001 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59024 - "GET /api/admin/summary HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59028 - "POST /api/auth/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59028 - "GET /api/excel-intake/batches/latest?requirement_id=REQ-DEVOPS-ENGINEER-001 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:59028 - "GET /api/admin/summary HTTP/1.1" 200 OK
