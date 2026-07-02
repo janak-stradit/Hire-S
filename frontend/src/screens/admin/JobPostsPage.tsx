@@ -235,7 +235,11 @@ export function JobPostsPage() {
                           ? `${j.experience_min}+ yrs`
                           : "—"}
                     </td>
-                    <td className="font-medium text-slate-700">{j.total_applications}</td>
+                    <td className="font-medium text-slate-700" onClick={e => e.stopPropagation()}>
+                      <button onClick={() => router.push(`/jobs/${j.job_id}/applications`)} className="hover:text-brand-600 hover:underline">
+                        {j.total_applications}
+                      </button>
+                    </td>
                     <td onClick={e => e.stopPropagation()}>
                       <StatusCell post={j} onChange={updateStatus} />
                     </td>

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft, Briefcase, MapPin, Clock, DollarSign, GraduationCap,
   Award, Users, CheckCircle2, Loader2, ChevronDown,
-  ScanSearch, User, Zap, XCircle, TrendingUp
+  ScanSearch, User, Zap, XCircle, TrendingUp, Download
 } from "lucide-react";
 import { apiClient } from "../../../../src/api/client";
 
@@ -98,6 +98,8 @@ export default function JobDetailPage() {
   const [scanResult, setScanResult]   = useState<ScanResult | null>(null);
   const [scanError, setScanError]     = useState("");
   const [scanned, setScanned]         = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importSuccess, setImportSuccess] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -110,6 +112,14 @@ export default function JobDetailPage() {
         setLoading(false);
       }
     })();
+    
+    const cached = sessionStorage.getItem(`scanResult_${requirementId}`);
+    if (cached) {
+      try {
+        setScanResult(JSON.parse(cached));
+        setScanned(true);
+      } catch { /* ignore parse error */ }
+    }
   }, [requirementId]);
 
   async function changeStatus(s: string) {
@@ -126,13 +136,37 @@ export default function JobDetailPage() {
     if (!job) return;
     setScanning(true); setScanError(""); setScanResult(null);
     try {
-      const res = await apiClient.get(`/jobs/${job.job_id}/matching-candidates`, { params: { limit: 50 } });
+      const res = await apiClient.get(`/jobs/${job.job_id}/matching-candidates`, { params: { limit: 500 } });
       setScanResult(res.data);
+      sessionStorage.setItem(`scanResult_${requirementId}`, JSON.stringify(res.data));
       setScanned(true);
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setScanError(msg || "Scan failed. Please try again.");
-    } finally { setScanning(false); }
+      setImportSuccess(false);
+    } catch (err: any) {
+      setScanError(err.message || "Failed to scan candidates.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function importMatches() {
+    if (!scanResult) return;
+    setIsImporting(true);
+    setScanError("");
+    setImportSuccess(false);
+    try {
+      const res = await apiClient.post(`/jobs/${requirementId}/source-candidates`, {
+        limit: 500
+      });
+      if (res.data.status === "success") {
+        setImportSuccess(true);
+        sessionStorage.removeItem(`scanResult_${requirementId}`);
+        setJob(prev => prev ? { ...prev, total_applications: prev.total_applications + res.data.imported } : null);
+      }
+    } catch (err: any) {
+      setScanError(err.message || "Failed to import candidates.");
+    } finally {
+      setIsImporting(false);
+    }
   }
 
   if (loading) return (
@@ -319,6 +353,13 @@ export default function JobDetailPage() {
         </div>
       )}
 
+      {importSuccess && (
+        <div className="card card-body flex items-center gap-3 border-emerald-200 bg-emerald-50">
+          <CheckCircle2 className="h-5 w-5 text-emerald-500 flex-shrink-0" />
+          <p className="text-sm text-emerald-700">Successfully imported candidates to the pipeline!</p>
+        </div>
+      )}
+
       {scanResult && (
         <div className="card overflow-hidden animate-fade-in">
           <div className="card-header flex items-center justify-between">
@@ -331,10 +372,18 @@ export default function JobDetailPage() {
                 {scanResult.candidates.length < scanResult.total_matches && ` · showing top ${scanResult.candidates.length}`}
               </p>
             </div>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" /> ≥70% match</span>
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-400" /> 40–69%</span>
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-400" /> &lt;40%</span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 text-xs text-slate-500">
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" /> ≥70% match</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-400" /> 40–69%</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-400" /> &lt;40%</span>
+              </div>
+              {scanResult.candidates.length > 0 && !importSuccess && (
+                <button onClick={importMatches} disabled={isImporting} className="button-primary py-1.5 px-3 text-xs">
+                  {isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  {isImporting ? "Importing..." : "Import Matches to Pipeline"}
+                </button>
+              )}
             </div>
           </div>
 

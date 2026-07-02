@@ -48,7 +48,7 @@ export default function OperationsDashboardPage() {
     { label: "Total Candidates",  value: summary?.total_candidates ?? 0,    icon: Users,        color: "text-brand-600",   bg: "bg-brand-50",   href: "/candidates" },
     { label: "Applications",      value: summary?.total_applications ?? 0,  icon: Briefcase,    color: "text-emerald-600", bg: "bg-emerald-50", href: "/job-posts"  },
     { label: "Active Roles",      value: summary?.active_requirements ?? 0, icon: CheckCircle2, color: "text-sky-600",     bg: "bg-sky-50",     href: "/job-posts"  },
-    { label: "Pending Review",    value: summary?.pending_reviews ?? 0,     icon: Clock,        color: "text-amber-600",   bg: "bg-amber-50",   href: "/candidates" },
+    { label: "Pending Review",    value: summary?.pending_reviews ?? 0,     icon: Clock,        color: "text-amber-600",   bg: "bg-amber-50",   href: "/review-queue" },
   ];
 
   const pipelineStats = [

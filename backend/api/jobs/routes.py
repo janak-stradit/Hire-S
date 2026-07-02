@@ -90,7 +90,7 @@ async def list_jobs(
 @router.get("/{job_id}/matching-candidates")
 async def matching_candidates(
     job_id: str,
-    limit: int = Query(default=50, le=200),
+    limit: int = Query(default=500, le=500),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -159,6 +159,140 @@ async def matching_candidates(
         "total_matches":   len(results),
         "candidates":      results[:limit],
     }
+
+
+class SourceCandidatesRequest(BaseModel):
+    limit: int = 500
+
+@router.post("/{job_id}/source-candidates")
+async def source_candidates(
+    job_id: str,
+    payload: SourceCandidatesRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Source top matching pool candidates and create applications/validator results for them."""
+    _require_manager(current_user)
+    job = await JobService(session).get(job_id)
+    required_skills = [s.strip().lower() for s in job.skills_required.split(",") if s.strip()]
+
+    from backend.models.candidate import CandidateProfile
+    from backend.models.validator import ParsedResume, ParsedJobDescription, ValidatorResult
+
+    # Fetch latest parsed job description
+    parsed_jd = (await session.execute(
+        select(ParsedJobDescription)
+        .where(ParsedJobDescription.job_id == job_id)
+        .order_by(ParsedJobDescription.parsed_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    
+    if not parsed_jd:
+        # Create a dummy one if it doesn't exist
+        parsed_jd = ParsedJobDescription(
+            job_id=job_id,
+            required_skills=job.skills_required,
+            preferred_skills=job.preferred_skills,
+            experience_min=job.experience_min,
+            experience_max=job.experience_max,
+            education_requirements=job.education_requirements or "",
+            certifications=job.mandatory_certifications or "",
+            raw_text=job.description
+        )
+        session.add(parsed_jd)
+        await session.flush()
+
+    resume_subq = (
+        select(
+            ParsedResume.candidate_id,
+            func.max(ParsedResume.resume_id).label("latest_resume_id"),
+        )
+        .group_by(ParsedResume.candidate_id)
+        .subquery("latest_resumes")
+    )
+    stmt = (
+        select(CandidateProfile, ParsedResume)
+        .join(resume_subq, resume_subq.c.candidate_id == CandidateProfile.candidate_id)
+        .join(ParsedResume, ParsedResume.resume_id == resume_subq.c.latest_resume_id)
+        .where(
+            CandidateProfile.reusable_from_pool.is_(True),
+            CandidateProfile.agent_processing_allowed.is_(True),
+        )
+    )
+    if job.experience_min is not None:
+        stmt = stmt.where(ParsedResume.total_experience_years >= float(job.experience_min))
+    if job.experience_max is not None:
+        stmt = stmt.where(ParsedResume.total_experience_years <= float(job.experience_max))
+
+    rows = (await session.execute(stmt)).all()
+
+    def _score(resume: ParsedResume) -> tuple[int, list[str], list[str]]:
+        resume_text = (resume.skills or "") + " " + (resume.raw_text or "")
+        resume_lower = resume_text.lower()
+        matched = [s for s in required_skills if s in resume_lower]
+        missing = [s for s in required_skills if s not in resume_lower]
+        return len(matched), matched, missing
+
+    results = []
+    for candidate, resume in rows:
+        match_count, matched, missing = _score(resume)
+        pct = round(match_count / len(required_skills) * 100) if required_skills else 0
+        results.append((candidate, resume, pct, matched, missing))
+
+    results.sort(key=lambda r: r[2], reverse=True)
+    top_results = results[:payload.limit]
+
+    imported_count = 0
+    for candidate, resume, pct, matched, missing in top_results:
+        # Check if application already exists
+        existing_app = (await session.execute(
+            select(Application).where(
+                Application.candidate_id == candidate.candidate_id,
+                Application.job_id == job_id
+            )
+        )).scalar_one_or_none()
+
+        if existing_app:
+            continue
+
+        app = Application(
+            candidate_id=candidate.candidate_id,
+            job_id=job_id,
+            application_status="Applied",
+            intake_source="pool_scan"
+        )
+        session.add(app)
+        await session.flush()
+
+        decision = "PASS"
+        if job.screening_pass_score and pct < job.screening_pass_score:
+            decision = "REVIEW"
+        if job.screening_review_score and pct < job.screening_review_score:
+            decision = "FAIL"
+
+        val_result = ValidatorResult(
+            application_id=app.application_id,
+            candidate_id=candidate.candidate_id,
+            job_id=job_id,
+            parsed_resume_id=resume.parsed_resume_id,
+            parsed_jd_id=parsed_jd.parsed_jd_id,
+            skill_score=pct,
+            experience_score=100.0,
+            education_score=100.0,
+            certification_score=100.0,
+            keyword_score=pct,
+            final_score=pct,
+            decision=decision,
+            queue_target="manager_review" if decision != "FAIL" else "rejected",
+            matched_skills=matched,
+            missing_skills=missing,
+            explanation=f"Sourced from pool with {pct}% skill match."
+        )
+        session.add(val_result)
+        imported_count += 1
+
+    await session.commit()
+    return {"status": "success", "imported": imported_count}
 
 
 @router.get("/{job_id}")
