@@ -751,7 +751,6 @@ class CandidateFetchCriteria:
             self._freshness_matches(candidate.source_reference, raw_text, candidate),
             self._domain_matches(text),
         ))
-
     def _role_matches(self, current_role: str | None, raw_text: str) -> bool:
         role_text = f"{current_role or ''} {raw_text}"
         return any(_contains_phrase(role_text, role) for role in self.role_titles if role)

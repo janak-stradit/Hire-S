@@ -13,7 +13,11 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 # Activate virtual environment
-source "$VENV_DIR/bin/activate"
+if [ -f "$VENV_DIR/bin/activate" ]; then
+    source "$VENV_DIR/bin/activate"
+else
+    source "$VENV_DIR/Scripts/activate"
+fi
 
 # Install/update dependencies if requirements.git config --get remote.origin.urltxt changed
 REQUIREMENTS_HASH_FILE="$VENV_DIR/.requirements_hash"
@@ -22,7 +26,7 @@ STORED_HASH=$(cat "$REQUIREMENTS_HASH_FILE" 2>/dev/null || echo "")
 
 if [ "$CURRENT_HASH" != "$STORED_HASH" ]; then
     echo "[setup] Installing dependencies..."
-    pip install --upgrade pip -q
+    python3 -m pip install --upgrade pip -q
     pip install \
         "fastapi>=0.111.0" \
         "uvicorn[standard]>=0.30.0" \
@@ -69,9 +73,9 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
     exit 1
 fi
 
-# Run Alembic migrations
-echo "[db] Running database migrations..."
-alembic upgrade head
+# Run Alembic migrations (Disabled to use existing database)
+# echo "[db] Running database migrations..."
+# alembic upgrade head
 
 # Bootstrap storage directories and seed workbooks if missing
 echo "[setup] Checking storage..."
