@@ -32,7 +32,7 @@ from backend.validator.scoring import calculate_scores
 from backend.validator.skill_matcher import match_skills
 
 APPLICATION_STATUS_BY_DECISION = {
-    "PASS": "SHORTLISTED",
+    "PASS": "R1_READY",
     "REVIEW": "UNDER_REVIEW",
     "FAIL": "REJECTED",
 }

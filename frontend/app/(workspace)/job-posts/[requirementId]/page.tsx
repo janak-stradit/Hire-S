@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import {
   ArrowLeft, Briefcase, MapPin, Clock, DollarSign, GraduationCap,
   Award, Users, CheckCircle2, Loader2, ChevronDown,
-  ScanSearch, User, Zap, XCircle, TrendingUp, Download
+  ScanSearch, User, Zap, XCircle, TrendingUp, Download, Filter, X, SlidersHorizontal
 } from "lucide-react";
 import { apiClient } from "../../../../src/api/client";
 
@@ -42,6 +42,8 @@ type MatchedCandidate = {
   missing_skills: string[];
   match_score: number;
   total_required: number;
+  decision: string;
+  is_imported?: boolean;
 };
 
 type ScanResult = {
@@ -100,6 +102,15 @@ export default function JobDetailPage() {
   const [scanned, setScanned]         = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importSuccess, setImportSuccess] = useState(false);
+  
+  const [importedCandidates, setImportedCandidates] = useState<MatchedCandidate[]>([]);
+  
+  // Filter state
+  const [filterDecision, setFilterDecision] = useState<string>("");
+  const [filterScoreBand, setFilterScoreBand] = useState<string>("");
+  const [filterFreshness, setFilterFreshness] = useState<string>("");
+  const [showFilters, setShowFilters] = useState(false);
+  const hasFilters = Boolean(filterDecision || filterScoreBand || filterFreshness);
 
   useEffect(() => {
     (async () => {
@@ -111,6 +122,13 @@ export default function JobDetailPage() {
       } finally {
         setLoading(false);
       }
+    })();
+    
+    (async () => {
+      try {
+        const res = await apiClient.get(`/jobs/${requirementId}/imported-candidates`);
+        setImportedCandidates(res.data.candidates || []);
+      } catch { /* ignore error */ }
     })();
     
     const cached = sessionStorage.getItem(`scanResult_${requirementId}`);
@@ -194,6 +212,15 @@ export default function JobDetailPage() {
     : job.experience_max != null ? `Up to ${job.experience_max} yrs`
     : null;
 
+  const combinedCandidates = [...(scanResult?.candidates || []), ...importedCandidates];
+  const filteredCandidates = combinedCandidates.filter(c => {
+    if (filterDecision && c.decision !== filterDecision) return false;
+    if (filterFreshness && c.freshness !== filterFreshness) return false;
+    if (filterScoreBand === ">=70" && c.match_score < 70) return false;
+    if (filterScoreBand === "40-69" && (c.match_score < 40 || c.match_score >= 70)) return false;
+    return true;
+  });
+
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       {/* Back nav */}
@@ -234,11 +261,11 @@ export default function JobDetailPage() {
                 </div>
               )}
             </div>
-            <button onClick={runScan} disabled={scanning}
+            <button onClick={runScan} disabled={scanning || job.status !== 'open'}
               className="button-primary">
               {scanning
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Scanning…</>
-                : <><ScanSearch className="h-4 w-4" /> {scanned ? "Re-scan Candidates" : "Scan Candidates"}</>}
+                : <><ScanSearch className="h-4 w-4" /> {job.total_applications > 0 ? "Re-scan for New Candidates" : (scanned ? "Re-scan Candidates" : "Scan Candidates")}</>}
             </button>
           </div>
         </div>
@@ -360,38 +387,74 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {scanResult && (
+      {(scanResult || importedCandidates.length > 0) && (
         <div className="card overflow-hidden animate-fade-in">
-          <div className="card-header flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Zap className="h-4 w-4 text-amber-500" /> Matching Candidates from Pool
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                {scanResult.total_matches} candidate{scanResult.total_matches !== 1 ? "s" : ""} matched
-                {scanResult.candidates.length < scanResult.total_matches && ` · showing top ${scanResult.candidates.length}`}
-              </p>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3 text-xs text-slate-500">
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" /> ≥70% match</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-400" /> 40–69%</span>
-                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-400" /> &lt;40%</span>
+          <div className="card-header flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-amber-500" /> Matching Candidates from Pool
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {combinedCandidates.length} candidate{combinedCandidates.length !== 1 ? "s" : ""} matched
+                </p>
               </div>
-              {scanResult.candidates.length > 0 && !importSuccess && (
-                <button onClick={importMatches} disabled={isImporting} className="button-primary py-1.5 px-3 text-xs">
-                  {isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                  {isImporting ? "Importing..." : "Import Matches to Pipeline"}
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowFilters(!showFilters)}
+                  className={`button-secondary py-1.5 px-3 text-xs ${hasFilters ? "ring-2 ring-brand-400" : ""}`}>
+                  <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
+                  {hasFilters && <span className="ml-1 rounded-full bg-brand-600 px-1.5 py-0.5 text-2xs text-white">ON</span>}
                 </button>
-              )}
+                {scanResult && scanResult.candidates.length > 0 && !importSuccess && (
+                  <button onClick={importMatches} disabled={isImporting} className="button-primary py-1.5 px-3 text-xs">
+                    {isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                    {isImporting ? "Importing..." : "Import Matches to Pipeline"}
+                  </button>
+                )}
+              </div>
             </div>
+            
+            {showFilters && (
+              <div className="flex flex-wrap gap-4 items-end bg-slate-50/50 p-3 rounded-lg border border-slate-100 animate-fade-in mt-4">
+                <div className="space-y-1 min-w-[140px]">
+                  <label className="text-xs font-semibold text-slate-600 flex items-center gap-1"><Filter className="h-3 w-3" /> Decision</label>
+                  <select className="input text-sm py-1.5" value={filterDecision} onChange={e => setFilterDecision(e.target.value)}>
+                    <option value="">All</option>
+                    <option value="PASS">PASS</option>
+                    <option value="REVIEW">REVIEW</option>
+                  </select>
+                </div>
+                <div className="space-y-1 min-w-[140px]">
+                  <label className="text-xs font-semibold text-slate-600">Score Band</label>
+                  <select className="input text-sm py-1.5" value={filterScoreBand} onChange={e => setFilterScoreBand(e.target.value)}>
+                    <option value="">All</option>
+                    <option value=">=70">≥70% match</option>
+                    <option value="40-69">40–69% match</option>
+                  </select>
+                </div>
+                <div className="space-y-1 min-w-[140px]">
+                  <label className="text-xs font-semibold text-slate-600">Freshness</label>
+                  <select className="input text-sm py-1.5" value={filterFreshness} onChange={e => setFilterFreshness(e.target.value)}>
+                    <option value="">All</option>
+                    <option value="FRESH">Fresh</option>
+                    <option value="STALE">Stale</option>
+                    <option value="AGED">Aged</option>
+                  </select>
+                </div>
+                {hasFilters && (
+                  <button onClick={() => { setFilterDecision(""); setFilterScoreBand(""); setFilterFreshness(""); }} className="button-secondary text-xs h-fit py-1.5">
+                    <X className="h-3.5 w-3.5" /> Clear
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
-          {scanResult.candidates.length === 0 ? (
+          {filteredCandidates.length === 0 ? (
             <div className="py-16 text-center">
               <User className="mx-auto mb-3 h-10 w-10 text-slate-200" />
-              <p className="text-sm font-medium text-slate-500">No reusable candidates match this job's criteria.</p>
-              <p className="mt-1 text-xs text-slate-400">Try uploading more resumes or adjusting the experience range.</p>
+              <p className="text-sm font-medium text-slate-500">No candidates match your criteria.</p>
+              <p className="mt-1 text-xs text-slate-400">Try adjusting your filters or running a new scan.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -408,10 +471,13 @@ export default function JobDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {scanResult.candidates.map(c => (
-                    <tr key={c.candidate_id}>
+                  {filteredCandidates.map(c => (
+                    <tr key={c.candidate_id} className={c.is_imported ? "bg-slate-50/50" : ""}>
                       <td>
-                        <div className="font-semibold text-slate-800">{c.name}</div>
+                        <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+                          {c.name}
+                          {c.is_imported && <span className="badge-slate !py-0 !px-1.5 !text-[10px]">Imported</span>}
+                        </div>
                         {c.phone && <div className="text-xs text-slate-400">{c.phone}</div>}
                       </td>
                       <td className="text-slate-600">
@@ -473,7 +539,7 @@ export default function JobDetailPage() {
               Scan the talent pool for candidates who match this job's skills and experience criteria.
             </p>
           </div>
-          <button onClick={runScan} className="button-primary">
+          <button onClick={runScan} disabled={scanning || job.status !== 'open'} className="button-primary">
             <ScanSearch className="h-4 w-4" /> Scan Candidates Now
           </button>
         </div>

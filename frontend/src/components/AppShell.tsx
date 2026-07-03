@@ -3,11 +3,12 @@
 import {
   Briefcase, ChevronDown, Database, FileText, LayoutDashboard,
   LogOut, PanelLeftClose, PanelLeftOpen, Shield, UserRound,
-  Users, Bell, Search, Settings, Building2, Upload
+  Users, Bell, Search, Settings, Building2, Upload, Loader2, X
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState, useRef, type ReactNode } from "react";
+import { apiClient } from "../api/client";
 
 type NavItem = { to: string; label: string; icon: React.ElementType; badge?: string };
 
@@ -176,10 +177,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Top bar */}
         <header className="sticky top-0 z-20 flex h-[64px] items-center gap-4 border-b border-slate-200 bg-white/90 px-6 backdrop-blur-md">
           <div className="flex-1">
-            <div className="relative hidden max-w-sm sm:block">
-              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input type="search" placeholder="Search…"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-brand-400 focus:bg-white focus:ring-[3px] focus:ring-brand-500/15" />
+            <div className="relative hidden max-w-sm sm:block z-50">
+              <GlobalSearch />
             </div>
           </div>
           <div className="flex items-center gap-2.5">
@@ -211,6 +210,129 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         ))}
       </nav>
+    </div>
+  );
+}
+
+function GlobalSearch() {
+  const router = useRouter();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ candidates: any[], jobs: any[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!query || query.length < 2) {
+      setResults(null);
+      return;
+    }
+    setLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiClient.get(`/admin/search?q=${encodeURIComponent(query)}`);
+        setResults(res.data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  function handleSelectJob(jobId: string) {
+    setOpen(false);
+    setQuery("");
+    router.push(`/job-posts/${jobId}`);
+  }
+
+  function handleSelectCandidate(email: string) {
+    setOpen(false);
+    setQuery("");
+    router.push(`/candidates?search=${encodeURIComponent(email)}`);
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <input 
+        type="search" 
+        placeholder="Search candidates, jobs…"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          if (e.target.value.length >= 2) setOpen(true);
+        }}
+        onFocus={() => { if (query.length >= 2) setOpen(true); }}
+        className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-brand-400 focus:bg-white focus:ring-[3px] focus:ring-brand-500/15" 
+      />
+      
+      {open && (query.length >= 2) && (
+        <div className="absolute top-full left-0 right-0 mt-2 rounded-xl border border-slate-200 bg-white shadow-xl max-h-[400px] overflow-y-auto z-50">
+          {loading && !results && (
+            <div className="flex justify-center p-4">
+              <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+            </div>
+          )}
+          
+          {results && (
+            <div className="py-2">
+              {results.candidates.length > 0 && (
+                <div className="mb-2">
+                  <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Candidates</div>
+                  {results.candidates.map(c => (
+                    <button key={c.id} onClick={() => handleSelectCandidate(c.email)}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-3 transition">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+                        <Users className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-900 truncate">{c.name}</div>
+                        <div className="text-xs text-slate-500 truncate">{c.role}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              
+              {results.jobs.length > 0 && (
+                <div>
+                  <div className="px-3 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider">Jobs</div>
+                  {results.jobs.map(j => (
+                    <button key={j.id} onClick={() => handleSelectJob(j.id)}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-3 transition">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-50 text-amber-600">
+                        <Briefcase className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-slate-900 truncate">{j.title}</div>
+                        <div className="text-xs text-slate-500 truncate">{j.department}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {results.candidates.length === 0 && results.jobs.length === 0 && !loading && (
+                <div className="px-4 py-6 text-center text-sm text-slate-500">
+                  No results found for "{query}"
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

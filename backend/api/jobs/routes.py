@@ -101,6 +101,8 @@ async def matching_candidates(
 
     from backend.models.candidate import CandidateProfile
     from backend.models.validator import ParsedResume
+    from backend.models.application import Application
+    from sqlalchemy import or_
 
     # Fetch reusable candidates with their parsed resumes (latest resume per candidate)
     resume_subq = (
@@ -111,13 +113,22 @@ async def matching_candidates(
         .group_by(ParsedResume.candidate_id)
         .subquery("latest_resumes")
     )
+
     stmt = (
         select(CandidateProfile, ParsedResume)
         .join(resume_subq, resume_subq.c.candidate_id == CandidateProfile.candidate_id)
         .join(ParsedResume, ParsedResume.resume_id == resume_subq.c.latest_resume_id)
+        .outerjoin(
+            Application,
+            (Application.candidate_id == CandidateProfile.candidate_id) & (Application.job_id == job_id)
+        )
         .where(
             CandidateProfile.reusable_from_pool.is_(True),
             CandidateProfile.agent_processing_allowed.is_(True),
+            or_(
+                Application.application_id.is_(None),
+                CandidateProfile.profile_last_refreshed_at > Application.applied_at
+            )
         )
     )
     if job.experience_min is not None:
@@ -138,6 +149,15 @@ async def matching_candidates(
     for candidate, resume in rows:
         match_count, matched, missing = _score(resume)
         pct = round(match_count / len(required_skills) * 100) if required_skills else 0
+        
+        # Quality filter
+        if job.screening_review_score and pct < job.screening_review_score:
+            continue
+            
+        decision = "PASS"
+        if job.screening_pass_score and pct < job.screening_pass_score:
+            decision = "REVIEW"
+
         results.append({
             "candidate_id":    candidate.candidate_id,
             "name":            f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or "Unknown",
@@ -149,6 +169,7 @@ async def matching_candidates(
             "matched_skills":  matched,
             "missing_skills":  missing,
             "match_score":     pct,
+            "decision":        decision,
             "total_required":  len(required_skills),
         })
 
@@ -158,6 +179,82 @@ async def matching_candidates(
         "job_title":       job.title,
         "total_matches":   len(results),
         "candidates":      results[:limit],
+    }
+
+@router.get("/{job_id}/imported-candidates")
+async def imported_candidates(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return candidates who have already been imported for this job."""
+    _require_manager(current_user)
+    job = await JobService(session).get(job_id)
+    required_skills = [s.strip().lower() for s in job.skills_required.split(",") if s.strip()]
+
+    from backend.models.candidate import CandidateProfile
+    from backend.models.validator import ParsedResume
+    from backend.models.application import Application
+
+    resume_subq = (
+        select(
+            ParsedResume.candidate_id,
+            func.max(ParsedResume.resume_id).label("latest_resume_id"),
+        )
+        .group_by(ParsedResume.candidate_id)
+        .subquery("latest_resumes")
+    )
+
+    stmt = (
+        select(CandidateProfile, ParsedResume)
+        .join(resume_subq, resume_subq.c.candidate_id == CandidateProfile.candidate_id)
+        .join(ParsedResume, ParsedResume.resume_id == resume_subq.c.latest_resume_id)
+        .join(Application, Application.candidate_id == CandidateProfile.candidate_id)
+        .where(Application.job_id == job_id)
+    )
+    
+    rows = (await session.execute(stmt)).all()
+
+    def _score(resume: ParsedResume) -> tuple[int, list[str], list[str]]:
+        resume_text = (resume.skills or "") + " " + (resume.raw_text or "")
+        resume_lower = resume_text.lower()
+        matched = [s for s in required_skills if s in resume_lower]
+        missing = [s for s in required_skills if s not in resume_lower]
+        return len(matched), matched, missing
+
+    results = []
+    for candidate, resume in rows:
+        match_count, matched, missing = _score(resume)
+        pct = round(match_count / len(required_skills) * 100) if required_skills else 0
+        
+        decision = "PASS"
+        if job.screening_pass_score and pct < job.screening_pass_score:
+            decision = "REVIEW"
+        if job.screening_review_score and pct < job.screening_review_score:
+            decision = "FAIL"
+
+        results.append({
+            "candidate_id":    candidate.candidate_id,
+            "name":            f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or "Unknown",
+            "phone":           candidate.phone,
+            "city":            candidate.city,
+            "state":           candidate.state,
+            "freshness":       candidate.profile_freshness_status,
+            "experience_years": resume.total_experience_years,
+            "matched_skills":  matched,
+            "missing_skills":  missing,
+            "match_score":     pct,
+            "decision":        decision,
+            "total_required":  len(required_skills),
+            "is_imported":     True
+        })
+
+    results.sort(key=lambda r: r["match_score"], reverse=True)
+    return {
+        "job_id":          job_id,
+        "job_title":       job.title,
+        "total_matches":   len(results),
+        "candidates":      results,
     }
 
 
@@ -252,23 +349,26 @@ async def source_candidates(
             )
         )).scalar_one_or_none()
 
-        if existing_app:
-            continue
-
-        app = Application(
-            candidate_id=candidate.candidate_id,
-            job_id=job_id,
-            application_status="Applied",
-            intake_source="pool_scan"
-        )
-        session.add(app)
-        await session.flush()
-
         decision = "PASS"
         if job.screening_pass_score and pct < job.screening_pass_score:
             decision = "REVIEW"
         if job.screening_review_score and pct < job.screening_review_score:
             decision = "FAIL"
+
+        app_status = "R1_READY" if decision == "PASS" else "Applied"
+
+        if existing_app:
+            app = existing_app
+            app.application_status = app_status
+        else:
+            app = Application(
+                candidate_id=candidate.candidate_id,
+                job_id=job_id,
+                application_status=app_status,
+                intake_source="pool_scan"
+            )
+            session.add(app)
+            await session.flush()
 
         val_result = ValidatorResult(
             application_id=app.application_id,

@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { apiClient } from "../../api/client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type CandidateRow = {
   application_id: string;
@@ -31,7 +31,7 @@ type CandidateRow = {
 
 const PAGE_SIZE = 25;
 
-const DECISIONS = ["PASS", "REVIEW", "FAIL"];
+const DECISIONS = ["PASS", "REVIEW"];
 const HR_ACTIONS = ["MOVE_FORWARD", "HOLD"];
 const WORKFLOW_STATES = ["PENDING", "MOVE_FORWARD", "HOLD"];
 
@@ -53,17 +53,20 @@ function fmt(d: string | null) {
 
 export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?: string; initialDecision?: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [candidates, setCandidates] = useState<CandidateRow[]>([]);
   const [total, setTotal]       = useState(0);
   const [page, setPage]         = useState(1);
   const [search, setSearch]     = useState("");
   
-  const [decision, setDecision] = useState(initialDecision || "");
+  const [decision, setDecision] = useState(initialDecision || searchParams.get("decision") || "");
   const [hrAction, setHrAction] = useState("");
   const [workflow, setWorkflow] = useState("");
+  const [selectedJob, setSelectedJob] = useState("");
   
   const [loading, setLoading]   = useState(true);
   const [jobTitle, setJobTitle] = useState("");
+  const [activeJobs, setActiveJobs] = useState<{job_id: string, title: string}[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -72,15 +75,17 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
   useEffect(() => {
     if (jobId) {
       apiClient.get(`/jobs/${jobId}`).then(res => setJobTitle(res.data.title)).catch(() => {});
+    } else {
+      apiClient.get(`/jobs/list`).then(res => setActiveJobs(res.data.jobs || [])).catch(() => {});
     }
   }, [jobId]);
 
-  const load = useCallback(async (p: number, q: string, dec: string, hrAct: string, flow: string) => {
+  const load = useCallback(async (p: number, q: string, dec: string, hrAct: string, flow: string, jId: string) => {
     setLoading(true);
     try {
       const res = await apiClient.get("/admin/candidates", {
         params: {
-          job_id: jobId || undefined,
+          job_id: jobId || jId || undefined,
           limit: PAGE_SIZE,
           offset: (p - 1) * PAGE_SIZE,
           search: q || undefined,
@@ -100,9 +105,11 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
   }, [jobId]);
 
   useEffect(() => {
-    const t = setTimeout(() => load(page, search, decision, hrAction, workflow), 300);
-    return () => clearTimeout(t);
-  }, [page, search, decision, hrAction, workflow, load]);
+    const timer = setTimeout(() => {
+      load(page, search, decision, hrAction, workflow, selectedJob);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [page, search, decision, hrAction, workflow, selectedJob, load]);
 
   function handleSearch(val: string) { setSearch(val); setPage(1); }
 
@@ -110,7 +117,9 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
     setDecision("");
     setHrAction("");
     setWorkflow("");
+    setSelectedJob("");
     setPage(1);
+    setSearch("");
   }
 
   function exportCSV() {
@@ -149,7 +158,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
         <ArrowLeft className="h-4 w-4" /> Back to {jobId ? "Job Posts" : "Dashboard"}
       </button>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-end justify-between">
         <div>
           <h1 className="page-title flex items-center gap-2">
             <Briefcase className="h-5 w-5 text-brand-600" /> 
@@ -165,7 +174,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
             className={`button-secondary ${hasFilters ? "ring-2 ring-brand-400" : ""}`}>
             <SlidersHorizontal className="h-4 w-4" /> Filters {hasFilters && <span className="ml-1 rounded-full bg-brand-600 px-1.5 py-0.5 text-2xs text-white">ON</span>}
           </button>
-          <button onClick={() => load(page, search, decision, hrAction, workflow)} disabled={loading} className="button-secondary">
+          <button onClick={() => load(page, search, decision, hrAction, workflow, selectedJob)} disabled={loading} className="button-secondary">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
@@ -182,6 +191,15 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
       {showFilters && (
         <div className="card card-body animate-fade-in">
           <div className="flex flex-wrap gap-4 items-end">
+            {!jobId && (
+              <div className="space-y-1 min-w-[200px]">
+                <label className="text-xs font-semibold text-slate-600 flex items-center gap-1"><Briefcase className="h-3 w-3" /> Job Post</label>
+                <select className="input text-sm" value={selectedJob} onChange={e => { setSelectedJob(e.target.value); setPage(1); }}>
+                  <option value="">All Jobs</option>
+                  {activeJobs.map(j => <option key={j.job_id} value={j.job_id}>{j.title}</option>)}
+                </select>
+              </div>
+            )}
             <div className="space-y-1 min-w-[160px]">
               <label className="text-xs font-semibold text-slate-600 flex items-center gap-1"><Filter className="h-3 w-3" /> Decision</label>
               <select className="input text-sm" value={decision} onChange={e => { setDecision(e.target.value); setPage(1); }}>
@@ -221,6 +239,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
               <thead>
                 <tr>
                   <th>Name</th>
+                  {!jobId && <th>Job Role</th>}
                   <th>Role</th>
                   <th>Location</th>
                   <th>Exp</th>
@@ -246,6 +265,9 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                       <div className="font-semibold text-slate-800">{c.name}</div>
                       <div className="text-xs text-slate-500">{c.email}</div>
                     </td>
+                    {!jobId && (
+                      <td className="text-brand-600 font-medium text-xs max-w-[180px] truncate" title={c.job_title}>{c.job_title}</td>
+                    )}
                     <td className="text-slate-600">{c.current_role ?? "—"}</td>
                     <td className="text-slate-600">{c.location || "—"}</td>
                     <td>{c.experience_years ? `${c.experience_years.toFixed(1)} yrs` : "—"}</td>
@@ -260,10 +282,16 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                       </span>
                     </td>
                     <td>
-                      <HrActionCell appId={c.application_id} currentAction={c.hr_action} onRefresh={() => load(page, search, decision, hrAction, workflow)} />
+                      {c.validator_decision === "REVIEW" ? (
+                        <HrActionCell appId={c.application_id} currentAction={c.hr_action} onRefresh={() => load(page, search, decision, hrAction, workflow, selectedJob)} />
+                      ) : (
+                        <span className="text-slate-400 text-sm">—</span>
+                      )}
                     </td>
                     <td>
-                      <span className="badge-slate">{c.application_status}</span>
+                      <span className="badge-slate">
+                        {c.application_status === "R1_READY" ? "R1 Ready" : c.application_status}
+                      </span>
                     </td>
                     <td className="text-xs text-slate-500">{fmt(c.evaluated_at)}</td>
                   </tr>

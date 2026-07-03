@@ -149,13 +149,14 @@ class AdminDashboardService:
         elif workflow_state == "HOLD":
             statement = statement.where(action.action == "HOLD")
         if search:
-            term = f"%{search.strip()}%"
+            term = f"%{search.strip().lower()}%"
             statement = statement.where(
                 or_(
-                    User.email.ilike(term),
-                    CandidateProfile.first_name.ilike(term),
-                    CandidateProfile.last_name.ilike(term),
-                    CandidateProfile.current_role.ilike(term),
+                    func.lower(User.email).like(term),
+                    func.lower(CandidateProfile.first_name).like(term),
+                    func.lower(CandidateProfile.last_name).like(term),
+                    func.lower(CandidateProfile.first_name + ' ' + CandidateProfile.last_name).like(term),
+                    func.lower(CandidateProfile.current_role).like(term),
                 )
             )
         rows = (await self.session.execute(statement.order_by(ValidatorResult.final_score.desc()))).all()
@@ -470,3 +471,60 @@ class AdminDashboardService:
             "verification_status": profile.verification_status,
             "evaluated_at": result.evaluated_at,
         }
+
+    async def global_search(self, query: str) -> dict:
+        """Global command palette search across candidates and active jobs."""
+        if not query or len(query.strip()) < 2:
+            return {"candidates": [], "jobs": []}
+            
+        term = f"%{query.strip().lower()}%"
+        
+        # Search candidates (limit 5)
+        candidate_stmt = (
+            select(CandidateProfile, User)
+            .join(User, User.id == CandidateProfile.candidate_id)
+            .where(
+                or_(
+                    func.lower(User.email).like(term),
+                    func.lower(CandidateProfile.first_name).like(term),
+                    func.lower(CandidateProfile.last_name).like(term),
+                    func.lower(CandidateProfile.first_name + ' ' + CandidateProfile.last_name).like(term),
+                    func.lower(CandidateProfile.current_role).like(term),
+                )
+            )
+            .limit(5)
+        )
+        cand_rows = (await self.session.execute(candidate_stmt)).all()
+        candidates = []
+        for profile, user in cand_rows:
+            name = " ".join(value for value in (profile.first_name, profile.last_name) if value).strip()
+            candidates.append({
+                "id": profile.candidate_id,
+                "email": user.email,
+                "name": name or user.email.split("@", 1)[0],
+                "role": profile.current_role or "Candidate",
+            })
+            
+        # Search jobs (limit 5)
+        job_stmt = (
+            select(Job)
+            .where(
+                or_(
+                    func.lower(Job.title).like(term),
+                    func.lower(Job.department).like(term),
+                    func.lower(Job.requirement_id).like(term),
+                )
+            )
+            .limit(5)
+        )
+        job_rows = (await self.session.scalars(job_stmt)).all()
+        jobs = []
+        for job in job_rows:
+            jobs.append({
+                "id": job.requirement_id,
+                "title": job.title,
+                "department": job.department,
+                "status": job.status,
+            })
+            
+        return {"candidates": candidates, "jobs": jobs}

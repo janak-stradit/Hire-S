@@ -66,6 +66,7 @@ async def create_user(
 ):
     from backend.services.auth_service import AuthService
     from backend.schemas.user import UserCreate
+
     if payload.role not in {"candidate", "recruiter", "hr", "admin"}:
         raise HTTPException(status_code=422, detail="Invalid role")
     if len(payload.password) < 8:
@@ -158,10 +159,7 @@ async def candidates_master(
     _: User = Depends(require_operations_user),
     session: AsyncSession = Depends(get_session),
 ):
-    query = (
-        select(CandidateProfile, User)
-        .join(User, User.id == CandidateProfile.candidate_id)
-    )
+    query = select(CandidateProfile, User).join(User, User.id == CandidateProfile.candidate_id)
     if search:
         term = f"%{search.lower()}%"
         query = query.where(
@@ -169,6 +167,9 @@ async def candidates_master(
                 func.lower(User.email).like(term),
                 func.lower(CandidateProfile.first_name).like(term),
                 func.lower(CandidateProfile.last_name).like(term),
+                func.lower(CandidateProfile.first_name + " " + CandidateProfile.last_name).like(
+                    term
+                ),
                 func.lower(CandidateProfile.current_role).like(term),
                 func.lower(CandidateProfile.current_company).like(term),
                 func.lower(CandidateProfile.city).like(term),
@@ -184,43 +185,47 @@ async def candidates_master(
     total_result = await session.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar_one()
 
-    rows = await session.execute(
-        query.order_by(User.created_at.desc()).limit(limit).offset(offset)
-    )
+    rows = await session.execute(query.order_by(User.created_at.desc()).limit(limit).offset(offset))
     items = []
     for profile, user in rows:
-        items.append({
-            "candidate_id": profile.candidate_id,
-            "email": user.email,
-            "first_name": profile.first_name,
-            "last_name": profile.last_name,
-            "phone": profile.phone,
-            "city": profile.city,
-            "state": profile.state,
-            "country": profile.country,
-            "current_company": profile.current_company,
-            "current_role": profile.current_role,
-            "total_experience": profile.total_experience,
-            "expected_salary": profile.expected_salary,
-            "notice_period": profile.notice_period,
-            "highest_education": profile.highest_education,
-            "linkedin_url": profile.linkedin_url,
-            "github_url": profile.github_url,
-            "portfolio_url": profile.portfolio_url,
-            "profile_completion_percentage": profile.profile_completion_percentage,
-            "source_type": profile.source_type,
-            "verification_status": profile.verification_status,
-            "talent_pool_status": profile.talent_pool_status,
-            "profile_freshness_status": profile.profile_freshness_status,
-            "agent_processing_allowed": profile.agent_processing_allowed,
-            "is_active": user.is_active,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
-            "last_evaluated_at": profile.last_evaluated_at.isoformat() if profile.last_evaluated_at else None,
-            "last_outcome": profile.last_outcome,
-            "profile_last_refreshed_at": profile.profile_last_refreshed_at.isoformat() if profile.profile_last_refreshed_at else None,
-            "skills": profile.skills or [],
-            "work_history": profile.work_history or [],
-        })
+        items.append(
+            {
+                "candidate_id": profile.candidate_id,
+                "email": user.email,
+                "first_name": profile.first_name,
+                "last_name": profile.last_name,
+                "phone": profile.phone,
+                "city": profile.city,
+                "state": profile.state,
+                "country": profile.country,
+                "current_company": profile.current_company,
+                "current_role": profile.current_role,
+                "total_experience": profile.total_experience,
+                "expected_salary": profile.expected_salary,
+                "notice_period": profile.notice_period,
+                "highest_education": profile.highest_education,
+                "linkedin_url": profile.linkedin_url,
+                "github_url": profile.github_url,
+                "portfolio_url": profile.portfolio_url,
+                "profile_completion_percentage": profile.profile_completion_percentage,
+                "source_type": profile.source_type,
+                "verification_status": profile.verification_status,
+                "talent_pool_status": profile.talent_pool_status,
+                "profile_freshness_status": profile.profile_freshness_status,
+                "agent_processing_allowed": profile.agent_processing_allowed,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat() if user.created_at else None,
+                "last_evaluated_at": profile.last_evaluated_at.isoformat()
+                if profile.last_evaluated_at
+                else None,
+                "last_outcome": profile.last_outcome,
+                "profile_last_refreshed_at": profile.profile_last_refreshed_at.isoformat()
+                if profile.profile_last_refreshed_at
+                else None,
+                "skills": profile.skills or [],
+                "work_history": profile.work_history or [],
+            }
+        )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -235,24 +240,59 @@ async def summary(
     from backend.models.application import Application as AppModel
     from backend.models.job import Job as JobModel
     from backend.models.resume import Resume as ResumeModel
+
     # Aggregate operations metrics for the HR dashboard cards.
-    total_candidates = (await session.execute(select(func.count()).select_from(CandidateProfile))).scalar_one()
-    total_applications = (await session.execute(select(func.count()).select_from(AppModel))).scalar_one()
-    active_requirements = (await session.execute(select(func.count()).select_from(JobModel).where(JobModel.status == "open"))).scalar_one()
-    fresh_candidates = (await session.execute(select(func.count()).select_from(CandidateProfile).where(CandidateProfile.profile_freshness_status == "FRESH"))).scalar_one()
-    stale_candidates = (await session.execute(select(func.count()).select_from(CandidateProfile).where(CandidateProfile.profile_freshness_status == "STALE"))).scalar_one()
-    available_pool = (await session.execute(select(func.count()).select_from(CandidateProfile).where(CandidateProfile.talent_pool_status == "AVAILABLE"))).scalar_one()
+    total_candidates = (
+        await session.execute(select(func.count()).select_from(CandidateProfile))
+    ).scalar_one()
+    total_applications = (
+        await session.execute(select(func.count()).select_from(AppModel))
+    ).scalar_one()
+    active_requirements = (
+        await session.execute(
+            select(func.count()).select_from(JobModel).where(JobModel.status == "open")
+        )
+    ).scalar_one()
+    fresh_candidates = (
+        await session.execute(
+            select(func.count())
+            .select_from(CandidateProfile)
+            .where(CandidateProfile.profile_freshness_status == "FRESH")
+        )
+    ).scalar_one()
+    stale_candidates = (
+        await session.execute(
+            select(func.count())
+            .select_from(CandidateProfile)
+            .where(CandidateProfile.profile_freshness_status == "STALE")
+        )
+    ).scalar_one()
+    available_pool = (
+        await session.execute(
+            select(func.count())
+            .select_from(CandidateProfile)
+            .where(CandidateProfile.talent_pool_status == "AVAILABLE")
+        )
+    ).scalar_one()
     week_ago = datetime.utcnow() - timedelta(days=7)
-    resumes_this_week = (await session.execute(select(func.count()).select_from(ResumeModel).where(ResumeModel.uploaded_at >= week_ago))).scalar_one()
+    resumes_this_week = (
+        await session.execute(
+            select(func.count()).select_from(ResumeModel).where(ResumeModel.uploaded_at >= week_ago)
+        )
+    ).scalar_one()
     # Pending reviews: validator REVIEW decisions without an HR action yet.
     from backend.models.validator import ValidatorResult
     from backend.models.hr_review import HRReviewAction
+
     review_subq = select(HRReviewAction.application_id)
-    pending_reviews = (await session.execute(
-        select(func.count()).select_from(ValidatorResult)
-        .where(ValidatorResult.decision == "REVIEW")
-        .where(ValidatorResult.application_id.notin_(review_subq))
-    )).scalar_one()
+    pending_reviews = (
+        await session.execute(
+            select(func.count())
+            .select_from(ValidatorResult)
+            .where(ValidatorResult.decision == "REVIEW")
+            .where(ValidatorResult.application_id.notin_(review_subq))
+        )
+    ).scalar_one()
     return {
         "total_candidates": total_candidates,
         "total_applications": total_applications,
@@ -300,7 +340,9 @@ async def candidates(
     batch_id: str | None = Query(default=None),
     decision: str | None = Query(default=None, pattern="^(PASS|REVIEW|FAIL)$"),
     hr_action: str | None = Query(default=None, pattern="^(MOVE_FORWARD|HOLD|REJECT)$"),
-    workflow_state: str | None = Query(default=None, pattern="^(PENDING|MOVE_FORWARD|HOLD|REJECT)$"),
+    workflow_state: str | None = Query(
+        default=None, pattern="^(PENDING|MOVE_FORWARD|HOLD|REJECT)$"
+    ),
     search: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=100, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -326,7 +368,9 @@ async def candidate_detail(
     return await AdminDashboardService(session).detail(application_id, validator_result_id)
 
 
-@router.post("/candidates/{application_id}/decision", response_model=ReviewActionResponse, status_code=201)
+@router.post(
+    "/candidates/{application_id}/decision", response_model=ReviewActionResponse, status_code=201
+)
 async def decide_candidate(
     application_id: str,
     payload: ReviewActionRequest,
@@ -349,7 +393,10 @@ async def update_pool_status(
     session: AsyncSession = Depends(get_session),
 ):
     if payload.talent_pool_status not in _VALID_POOL_STATUSES:
-        raise HTTPException(status_code=422, detail=f"Invalid pool status. Must be one of: {', '.join(_VALID_POOL_STATUSES)}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid pool status. Must be one of: {', '.join(_VALID_POOL_STATUSES)}",
+        )
     result = await session.execute(
         update(CandidateProfile)
         .where(CandidateProfile.candidate_id == candidate_id)
