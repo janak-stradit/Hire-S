@@ -24,6 +24,7 @@ class Job(Base):
     education_requirements: Mapped[str] = mapped_column(Text, nullable=False, default="")
     mandatory_certifications: Mapped[str] = mapped_column(Text, nullable=False, default="")
     requirement_id: Mapped[str | None] = mapped_column(String(120), unique=True, index=True)
+    vapi_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     screening_pass_score: Mapped[float] = mapped_column(Float, nullable=False, default=75)
     screening_review_score: Mapped[float] = mapped_column(Float, nullable=False, default=60)
     intake_source: Mapped[str] = mapped_column(String(40), nullable=False, default="candidate_portal")

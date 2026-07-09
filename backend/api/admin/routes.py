@@ -408,3 +408,45 @@ async def update_pool_status(
         raise HTTPException(status_code=404, detail="Candidate not found")
     await session.commit()
     return {"candidate_id": candidate_id, "talent_pool_status": payload.talent_pool_status}
+
+
+@router.get("/candidates/{application_id}/vapi-json")
+async def get_vapi_json(
+    application_id: str,
+    _: User = Depends(require_operations_user),
+    session: AsyncSession = Depends(get_session),
+):
+    from backend.models.application import Application
+    from backend.models.candidate import CandidateProfile
+    from backend.models.user import User as UserModel
+    from backend.models.job import Job
+    from sqlalchemy.orm import selectinload
+
+    result = await session.execute(
+        select(Application)
+        .options(
+            selectinload(Application.candidate).selectinload(CandidateProfile.user),
+            selectinload(Application.job)
+        )
+        .where(Application.application_id == application_id)
+    )
+    application = result.scalar_one_or_none()
+    
+    if not application:
+        raise HTTPException(status_code=404, detail="Application not found")
+        
+    candidate = application.candidate
+    user = candidate.user
+
+    return {
+        "candidate": {
+            "name": f"{candidate.first_name} {candidate.last_name}".strip(),
+            "email": user.email,
+            "phone": candidate.phone,
+            "applied_role": application.job.title if application.job else "Unknown Role",
+            "experience": candidate.total_experience,
+            "last_company": candidate.current_company,
+            "current_role": candidate.current_role,
+            "skills": candidate.skills or []
+        }
+    }

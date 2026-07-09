@@ -41,6 +41,8 @@ def serialize_job(job: Job) -> JobRead:
         "mandatory_certifications": [s for s in job.mandatory_certifications.split(",") if s.strip()],
         "status": job.status,
         "created_by": job.created_by,
+        "screening_pass_score": job.screening_pass_score,
+        "screening_review_score": job.screening_review_score,
     }
     return JobRead.model_validate(data)
 

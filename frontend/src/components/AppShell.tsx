@@ -182,7 +182,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <button className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-card-xs transition hover:bg-slate-50">
+            <button type="button" aria-label="Notifications" className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-card-xs transition hover:bg-slate-50">
               <Bell className="h-[18px] w-[18px] text-slate-500" />
               <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-brand-600 ring-2 ring-white" />
             </button>

@@ -16,6 +16,8 @@ class JobBase(BaseModel):
     education_requirements: str = ""
     mandatory_certifications: list[str] = Field(default_factory=list)
     status: str = Field(default="open", max_length=40)
+    screening_pass_score: float | None = Field(default=75.0, ge=0.0, le=100.0)
+    screening_review_score: float | None = Field(default=60.0, ge=0.0, le=100.0)
 
     @field_validator("experience_max")
     @classmethod
@@ -53,6 +55,8 @@ class JobUpdate(BaseModel):
     education_requirements: str | None = None
     mandatory_certifications: list[str] | None = None
     status: str | None = Field(default=None, max_length=40)
+    screening_pass_score: float | None = Field(default=None, ge=0.0, le=100.0)
+    screening_review_score: float | None = Field(default=None, ge=0.0, le=100.0)
 
 
 class JobRead(BaseModel):
@@ -72,5 +76,7 @@ class JobRead(BaseModel):
     mandatory_certifications: list[str]
     status: str
     created_by: str
+    screening_pass_score: float | None
+    screening_review_score: float | None
 
     model_config = ConfigDict(from_attributes=True)

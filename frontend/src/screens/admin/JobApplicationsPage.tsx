@@ -2,7 +2,7 @@
 
 import {
   Users, Search, RefreshCw, Loader2, ArrowLeft, Download, SlidersHorizontal, Filter,
-  Building2, MapPin, X, Check, Copy, ChevronLeft, ChevronRight, Briefcase, ChevronDown
+  Building2, MapPin, X, Check, Copy, ChevronLeft, ChevronRight, Briefcase, ChevronDown, Zap
 } from "lucide-react";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { apiClient } from "../../api/client";
@@ -248,12 +248,13 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                   <th>HR Action</th>
                   <th>Status</th>
                   <th>Evaluated At</th>
+                  <th>Vapi Interview</th>
                 </tr>
               </thead>
               <tbody>
                 {candidates.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-20 text-center text-slate-400">
+                    <td colSpan={10} className="py-20 text-center text-slate-400">
                       <Users className="mx-auto mb-2 h-8 w-8 text-slate-200" />
                       {search || hasFilters ? "No applications match your filters" : "No applications yet"}
                     </td>
@@ -290,10 +291,15 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                     </td>
                     <td>
                       <span className="badge-slate">
-                        {c.application_status === "R1_READY" ? "R1 Ready" : c.application_status}
+                        {(c.application_status === "R1_READY" || c.application_status.toLowerCase() === "shortlisted") ? "R1 Ready" : c.application_status}
                       </span>
                     </td>
                     <td className="text-xs text-slate-500">{fmt(c.evaluated_at)}</td>
+                    <td>
+                      {(c.application_status === "R1_READY" || c.application_status.toLowerCase() === "shortlisted") && (
+                        <ScheduleVapiInterviewButton appId={c.application_id} />
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -370,5 +376,98 @@ function HrActionCell({ appId, currentAction, onRefresh }: { appId: string, curr
         </div>
       )}
     </div>
+  );
+}
+
+function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<string>("none");
+  const [webCallUrl, setWebCallUrl] = useState<string | null>(null);
+  const [vapiData, setVapiData] = useState<any>(null);
+
+  useEffect(() => {
+    checkStatus();
+  }, [appId]);
+
+  useEffect(() => {
+    let interval: any;
+    if (status === "queued" || status === "in-progress") {
+      interval = setInterval(checkStatus, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [status]);
+
+  async function checkStatus() {
+    try {
+      const res = await apiClient.get(`/admin/candidates/${appId}/vapi-status`);
+      const data = res.data;
+      if (data.status !== "none") {
+        setStatus(data.status);
+        if (data.web_call_url) setWebCallUrl(data.web_call_url);
+        if (data.status === "ended") setVapiData(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function scheduleInterview() {
+    setLoading(true);
+    try {
+      const res = await apiClient.post(`/admin/candidates/${appId}/vapi-schedule`);
+      setStatus("queued");
+      setWebCallUrl(res.data.web_call_url);
+    } catch (err: any) {
+      alert("Failed to schedule Vapi interview: " + (err?.response?.data?.detail || err.message));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div className="h-7 flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>;
+
+  if (status === "ended" && vapiData) {
+    return (
+      <div className="flex flex-col gap-1 items-start">
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+          <Check className="h-3 w-3" /> Completed
+        </span>
+        <button onClick={() => alert("Transcript:\n\n" + (vapiData.transcript || "No transcript available."))} className="text-[10px] text-brand-600 hover:underline">
+          View Transcript
+        </button>
+        {vapiData.recording_url && (
+          <a href={vapiData.recording_url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 hover:underline">
+            Listen Audio
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (status === "queued" || status === "in-progress") {
+    return (
+      <div className="flex flex-col gap-1 items-start">
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+          <Loader2 className="h-3 w-3 animate-spin" /> {status === "in-progress" ? "In Progress" : "Queued"}
+        </span>
+        {webCallUrl && (
+          <a href={webCallUrl} target="_blank" rel="noreferrer" className="text-[10px] text-brand-600 hover:underline font-medium flex items-center gap-1 mt-0.5">
+            <Zap className="h-3 w-3 text-brand-500 fill-brand-500" /> Join Call
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={scheduleInterview}
+      disabled={loading}
+      className="button-primary text-xs h-7 px-3 bg-brand-600 hover:bg-brand-700 text-white border-transparent whitespace-nowrap shadow-sm shadow-brand-600/20"
+    >
+      Schedule R1 Interview
+    </button>
   );
 }

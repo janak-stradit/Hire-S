@@ -82,14 +82,14 @@ export default function JobsPage() {
           <input className="input pl-10" placeholder="Search by role, department, location…"
             value={search} onChange={e => setSearch(e.target.value)} />
           {search && (
-            <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <button type="button" aria-label="Clear search" onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
               <X className="h-4 w-4" />
             </button>
           )}
         </div>
         <div className="flex gap-1.5">
           {WORK_MODES.map(m => (
-            <button key={m} onClick={() => setMode(m)}
+            <button type="button" key={m} onClick={() => setMode(m)}
               className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${mode === m ? "bg-brand-600 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>
               {m}
             </button>
@@ -101,7 +101,7 @@ export default function JobsPage() {
         <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
           <BookmarkCheck className="h-4 w-4" />
           <span>{saved.size} saved job{saved.size > 1 ? "s" : ""}</span>
-          <button onClick={() => setSaved(new Set())} className="ml-auto text-amber-500 hover:text-amber-700"><X className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={() => setSaved(new Set())} className="ml-auto text-amber-500 hover:text-amber-700"><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
 
@@ -138,12 +138,12 @@ export default function JobsPage() {
                     </div>
                   </div>
                   <div className="flex flex-col gap-2 flex-shrink-0 items-end">
-                    <button onClick={() => toggleSave(j.requirement_id)}
+                    <button type="button" onClick={() => toggleSave(j.requirement_id)}
                       className={`rounded-lg p-1.5 transition ${isSaved ? "text-amber-500 bg-amber-50" : "text-slate-400 hover:text-amber-500 hover:bg-amber-50"}`}
                       title={isSaved ? "Remove bookmark" : "Save job"}>
                       {isSaved ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
                     </button>
-                    <button
+                    <button type="button"
                       onClick={() => applyNow(j)}
                       disabled={isApplying || isApplied}
                       className={`text-xs px-3 py-2 rounded-lg font-semibold transition ${isApplied ? "bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default" : "button-primary"}`}>

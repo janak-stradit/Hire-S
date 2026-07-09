@@ -58,6 +58,8 @@ function JobForm() {
     salary_min: "", salary_max: "",
     description: "", education_requirements: "",
     status: "draft",
+    screening_pass_score: "75",
+    screening_review_score: "60",
   });
   const [requiredSkills, setRequired]     = useState<string[]>([]);
   const [preferredSkills, setPreferred]   = useState<string[]>([]);
@@ -85,6 +87,8 @@ function JobForm() {
         education_requirements:  form.education_requirements,
         mandatory_certifications: certifications,
         status:                  form.status,
+        screening_pass_score:    form.screening_pass_score ? Number(form.screening_pass_score) : null,
+        screening_review_score:  form.screening_review_score ? Number(form.screening_review_score) : null,
       });
       setSuccess(true);
       setTimeout(() => router.push("/job-posts"), 1500);
@@ -159,6 +163,14 @@ function JobForm() {
           <select className="input" value={form.status} onChange={e => set("status", e.target.value)}>
             {STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
           </select>
+        </div>
+        <div className="space-y-1">
+          <label className="block text-xs font-semibold text-slate-600">Auto-Pass Score (%)</label>
+          <input className="input" type="number" min={0} max={100} placeholder="75" value={form.screening_pass_score} onChange={e => set("screening_pass_score", e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="block text-xs font-semibold text-slate-600">Manual Review Score (%)</label>
+          <input className="input" type="number" min={0} max={100} placeholder="60" value={form.screening_review_score} onChange={e => set("screening_review_score", e.target.value)} />
         </div>
       </div>
 
