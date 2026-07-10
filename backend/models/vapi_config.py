@@ -11,10 +11,10 @@ class VapiConfig(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    transcriber_model: Mapped[str] = mapped_column(String(100), default="assemblyai")
+    transcriber_model: Mapped[str] = mapped_column(String(100), default="deepgram")
     voice_provider: Mapped[str] = mapped_column(String(100), default="vapi")
-    voice_id: Mapped[str] = mapped_column(String(100), default="naina")
-    llm_model: Mapped[str] = mapped_column(String(100), default="anthropic-bedrock")
+    voice_id: Mapped[str] = mapped_column(String(100), default="Naina")
+    llm_model: Mapped[str] = mapped_column(String(100), default="claude-3-haiku-20240307")
     
     # Advanced Transcriber Settings
     transcriber_language: Mapped[str] = mapped_column(String(50), default="en")

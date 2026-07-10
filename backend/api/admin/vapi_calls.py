@@ -47,12 +47,17 @@ async def schedule_vapi_interview(
     # Determine prompt (job specific override or global)
     prompt = job.vapi_prompt if job.vapi_prompt else config.system_prompt
 
+    # Safely format variables
+    name = f"{candidate.first_name or ''} {candidate.last_name or ''}".strip() or "Candidate"
+    experience = f"{candidate.total_experience} years" if candidate.total_experience is not None else "Not specified"
+    location = candidate.city if candidate.city else "Not specified"
+
     # Handlebars replacement
-    prompt = prompt.replace("{{candidate.name}}", f"{candidate.first_name} {candidate.last_name}")
+    prompt = prompt.replace("{{candidate.name}}", name)
     prompt = prompt.replace("{{candidate.applied_role}}", job.title)
     prompt = prompt.replace("{{candidate.current_role}}", candidate.current_role or "Not specified")
-    prompt = prompt.replace("{{candidate.experience}}", f"{candidate.experience_years} years")
-    prompt = prompt.replace("{{candidate.location}}", candidate.location or "Not specified")
+    prompt = prompt.replace("{{candidate.experience}}", experience)
+    prompt = prompt.replace("{{candidate.location}}", location)
 
     # Build Vapi Payload for Web Call
     # https://docs.vapi.ai/api-reference/calls/create-web-call
@@ -60,7 +65,7 @@ async def schedule_vapi_interview(
     # Determine the model mapping (e.g. anthropic-bedrock -> anthropic)
     llm_model_str = config.llm_model
     llm_provider = "openai"
-    if "anthropic" in llm_model_str:
+    if "anthropic" in llm_model_str or "claude" in llm_model_str:
         llm_provider = "anthropic"
     
     # Mapping exact model names if needed, but Vapi usually accepts what we send or falls back.
@@ -68,6 +73,8 @@ async def schedule_vapi_interview(
     
     payload = {
         "assistant": {
+            "firstMessage": f"Hello {candidate.first_name}, I am your AI recruiter. Can you hear me clearly?",
+            "firstMessageMode": "assistant-speaks-first",
             "model": {
                 "provider": llm_provider,
                 "model": llm_model_str,
@@ -79,8 +86,8 @@ async def schedule_vapi_interview(
                 ]
             },
             "voice": {
-                "provider": config.voice_provider,
-                "voiceId": config.voice_id
+                "provider": "11labs",
+                "voiceId": "bIHbv24MWmeRgasZH58o"
             },
             "transcriber": {
                 "provider": config.transcriber_model,

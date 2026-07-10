@@ -143,9 +143,9 @@ async def get_vapi_config(
     if not config:
         config = VapiConfig(
             system_prompt=DEFAULT_PROMPT,
-            transcriber_model="assemblyai",
+            transcriber_model="deepgram",
             voice_provider="vapi",
-            llm_model="anthropic-bedrock"
+            llm_model="claude-3-haiku-20240307"
         )
         session.add(config)
         await session.commit()
