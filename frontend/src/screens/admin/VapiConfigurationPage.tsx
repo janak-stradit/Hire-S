@@ -371,8 +371,9 @@ export default function VapiConfigurationPage() {
                   <option value="anthropic">Anthropic (Claude 3)</option>
                   <option value="minimax">MiniMax</option>
                   <option value="google">Google</option>
-                  <option value="custom">Custom LLM</option>
                   <option value="groq">Groq</option>
+                  <option value="openrouter">OpenRouter (Llama 3)</option>
+                  <option value="custom">Custom LLM</option>
                   <option value="cerebras">Cerebras</option>
                   <option value="deepseek">Deep seek</option>
                 </select>

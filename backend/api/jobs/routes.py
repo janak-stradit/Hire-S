@@ -186,6 +186,7 @@ async def matching_candidates(
 @router.get("/{job_id}/imported-candidates")
 async def imported_candidates(
     job_id: str,
+    vapi_status: str | None = Query(default=None, pattern="^(Scheduled|Completed)$"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -207,13 +208,49 @@ async def imported_candidates(
         .subquery("latest_resumes")
     )
 
+    from backend.models.hr_review import HRReviewAction
+    from backend.models.vapi_call import VapiCall
+    from sqlalchemy.orm import aliased
+    
+    action = aliased(HRReviewAction)
+    
+    # Subquery for the latest VapiCall per application
+    latest_vapi_subq = (
+        select(
+            VapiCall.application_id,
+            func.max(VapiCall.created_at).label("latest_vapi_created_at")
+        )
+        .group_by(VapiCall.application_id)
+        .subquery("latest_vapi_calls")
+    )
+    
+    latest_vapi_alias = aliased(VapiCall)
+    
     stmt = (
-        select(CandidateProfile, ParsedResume)
+        select(CandidateProfile, ParsedResume, Application.application_id, Application.application_status, action.action)
         .join(resume_subq, resume_subq.c.candidate_id == CandidateProfile.candidate_id)
         .join(ParsedResume, ParsedResume.resume_id == resume_subq.c.latest_resume_id)
         .join(Application, Application.candidate_id == CandidateProfile.candidate_id)
+        .outerjoin(action, action.application_id == Application.application_id)
+        .outerjoin(
+            latest_vapi_subq,
+            latest_vapi_subq.c.application_id == Application.application_id
+        )
+        .outerjoin(
+            latest_vapi_alias,
+            (latest_vapi_alias.application_id == latest_vapi_subq.c.application_id)
+            & (latest_vapi_alias.created_at == latest_vapi_subq.c.latest_vapi_created_at)
+        )
         .where(Application.job_id == job_id)
     )
+    
+    if vapi_status == "Scheduled":
+        stmt = stmt.where(
+            latest_vapi_alias.status.isnot(None),
+            latest_vapi_alias.status != "ended"
+        )
+    elif vapi_status == "Completed":
+        stmt = stmt.where(latest_vapi_alias.status == "ended")
     
     rows = (await session.execute(stmt)).all()
 
@@ -225,7 +262,7 @@ async def imported_candidates(
         return len(matched), matched, missing
 
     results = []
-    for candidate, resume in rows:
+    for candidate, resume, app_id, app_status, hr_action in rows:
         match_count, matched, missing = _score(resume)
         pct = round(match_count / len(required_skills) * 100) if required_skills else 0
         
@@ -248,7 +285,10 @@ async def imported_candidates(
             "match_score":     pct,
             "decision":        decision,
             "total_required":  len(required_skills),
-            "is_imported":     True
+            "is_imported":     True,
+            "application_id":  app_id,
+            "application_status": app_status,
+            "hr_action":       hr_action
         })
 
     results.sort(key=lambda r: r["match_score"], reverse=True)

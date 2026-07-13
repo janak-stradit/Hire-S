@@ -1,11 +1,11 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   ArrowLeft, Briefcase, MapPin, Clock, DollarSign, GraduationCap,
   Award, Users, CheckCircle2, Loader2, ChevronDown,
-  ScanSearch, User, Zap, XCircle, TrendingUp, Download, Filter, X, SlidersHorizontal
+  ScanSearch, User, Zap, XCircle, TrendingUp, Download, Filter, X, SlidersHorizontal, Check
 } from "lucide-react";
 import { apiClient } from "../../../../src/api/client";
 
@@ -44,6 +44,9 @@ type MatchedCandidate = {
   total_required: number;
   decision: string;
   is_imported?: boolean;
+  application_id?: string;
+  application_status?: string;
+  hr_action?: string;
 };
 
 type ScanResult = {
@@ -60,6 +63,61 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const STATUSES = ["open", "draft", "paused", "closed"];
+
+const HR_ACTION_BADGE: Record<string, string> = {
+  MOVE_FORWARD: "badge-green",
+  HOLD: "badge-yellow",
+  REJECT: "badge-red"
+};
+
+function HrActionCell({ appId, currentAction, onRefresh }: { appId: string, currentAction: string | null, onRefresh: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function close(e: MouseEvent) { if (!ref.current?.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  async function pick(a: string) {
+    setOpen(false);
+    if (a === currentAction) return;
+    setSaving(true);
+    try {
+      await apiClient.post(`/admin/candidates/${appId}/decision`, { action: a, reason: "Quick action from dashboard" });
+      onRefresh();
+    } catch {
+      alert("Failed to save action");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const ACTIONS = ["MOVE_FORWARD", "HOLD"];
+  
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+        disabled={saving}
+        className={`${currentAction ? (HR_ACTION_BADGE[currentAction] ?? "badge-slate") : "badge-slate bg-slate-100 text-slate-600 hover:bg-slate-200"} inline-flex items-center gap-1 cursor-pointer transition`}>
+        {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : (currentAction ? currentAction.replace("_", " ") : "Action")}
+        <ChevronDown className="h-3 w-3" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-20 mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white shadow-card-lg py-1">
+          {ACTIONS.map(a => (
+            <button key={a} onClick={(e) => { e.stopPropagation(); pick(a); }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-slate-50 ${a === currentAction ? "text-brand-600 bg-brand-50" : "text-slate-700"}`}>
+              {a.replace("_", " ")}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const FRESHNESS_BADGE: Record<string, string> = {
   FRESH:  "badge-green",
@@ -105,12 +163,25 @@ export default function JobDetailPage() {
   
   const [importedCandidates, setImportedCandidates] = useState<MatchedCandidate[]>([]);
   
+  // Pipeline state
+  const [runningPipeline, setRunningPipeline] = useState(false);
+  const [pipelineSuccessMessage, setPipelineSuccessMessage] = useState("");
+  
   // Filter state
   const [filterDecision, setFilterDecision] = useState<string>("");
   const [filterScoreBand, setFilterScoreBand] = useState<string>("");
   const [filterFreshness, setFilterFreshness] = useState<string>("");
+  const [filterVapiStatus, setFilterVapiStatus] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
-  const hasFilters = Boolean(filterDecision || filterScoreBand || filterFreshness);
+  const hasFilters = Boolean(filterDecision || filterScoreBand || filterFreshness || filterVapiStatus);
+
+  const loadImported = useCallback(async () => {
+    try {
+      const params = filterVapiStatus ? { vapi_status: filterVapiStatus } : {};
+      const res = await apiClient.get(`/jobs/${requirementId}/imported-candidates`, { params });
+      setImportedCandidates(res.data.candidates || []);
+    } catch { /* ignore error */ }
+  }, [requirementId, filterVapiStatus]);
 
   useEffect(() => {
     (async () => {
@@ -124,13 +195,6 @@ export default function JobDetailPage() {
       }
     })();
     
-    (async () => {
-      try {
-        const res = await apiClient.get(`/jobs/${requirementId}/imported-candidates`);
-        setImportedCandidates(res.data.candidates || []);
-      } catch { /* ignore error */ }
-    })();
-    
     const cached = sessionStorage.getItem(`scanResult_${requirementId}`);
     if (cached) {
       try {
@@ -139,6 +203,10 @@ export default function JobDetailPage() {
       } catch { /* ignore parse error */ }
     }
   }, [requirementId]);
+
+  useEffect(() => {
+    loadImported();
+  }, [loadImported]);
 
   async function changeStatus(s: string) {
     if (!job || s === job.status) { setStatusOpen(false); return; }
@@ -184,6 +252,24 @@ export default function JobDetailPage() {
       setScanError(err.message || "Failed to import candidates.");
     } finally {
       setIsImporting(false);
+    }
+  }
+
+  async function runPipeline() {
+    if (!job) return;
+    setRunningPipeline(true);
+    setPipelineSuccessMessage("");
+    setScanError("");
+    try {
+      const res = await apiClient.post(`/admin/jobs/${job.job_id}/batch-vapi-schedule`);
+      setPipelineSuccessMessage(res.data.message);
+      // Refetch imported candidates to get updated vapi_status
+      const importedRes = await apiClient.get(`/jobs/${requirementId}/imported-candidates`);
+      setImportedCandidates(importedRes.data.candidates || []);
+    } catch (err: any) {
+      setScanError(err.message || "Failed to run pipeline.");
+    } finally {
+      setRunningPipeline(false);
     }
   }
 
@@ -387,6 +473,13 @@ export default function JobDetailPage() {
         </div>
       )}
 
+      {pipelineSuccessMessage && (
+        <div className="card card-body flex items-center gap-3 border-emerald-200 bg-emerald-50 animate-fade-in">
+          <CheckCircle2 className="h-5 w-5 text-emerald-500 flex-shrink-0" />
+          <p className="text-sm text-emerald-700">{pipelineSuccessMessage}</p>
+        </div>
+      )}
+
       {(scanResult || importedCandidates.length > 0) && (
         <div className="card overflow-hidden animate-fade-in">
           <div className="card-header flex flex-col gap-4">
@@ -409,6 +502,12 @@ export default function JobDetailPage() {
                   <button onClick={importMatches} disabled={isImporting} className="button-primary py-1.5 px-3 text-xs">
                     {isImporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                     {isImporting ? "Importing..." : "Import Matches to Pipeline"}
+                  </button>
+                )}
+                {importedCandidates.some(c => c.application_status === "R1_READY") && (
+                  <button onClick={runPipeline} disabled={runningPipeline} className="button-primary py-1.5 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20 border-transparent">
+                    {runningPipeline ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5 fill-white" />}
+                    {runningPipeline ? "Running..." : "Run Pipeline"}
                   </button>
                 )}
               </div>
@@ -441,8 +540,16 @@ export default function JobDetailPage() {
                     <option value="AGED">Aged</option>
                   </select>
                 </div>
+                <div className="space-y-1 min-w-[140px]">
+                  <label className="text-xs font-semibold text-slate-600">Vapi Interview</label>
+                  <select className="input text-sm py-1.5" value={filterVapiStatus} onChange={e => setFilterVapiStatus(e.target.value)}>
+                    <option value="">All</option>
+                    <option value="Scheduled">Scheduled</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
                 {hasFilters && (
-                  <button onClick={() => { setFilterDecision(""); setFilterScoreBand(""); setFilterFreshness(""); }} className="button-secondary text-xs h-fit py-1.5">
+                  <button onClick={() => { setFilterDecision(""); setFilterScoreBand(""); setFilterFreshness(""); setFilterVapiStatus(""); }} className="button-secondary text-xs h-fit py-1.5">
                     <X className="h-3.5 w-3.5" /> Clear
                   </button>
                 )}
@@ -468,6 +575,11 @@ export default function JobDetailPage() {
                     <th>Matched Skills</th>
                     <th>Missing Skills</th>
                     <th className="w-32">Match Score</th>
+                    <th>Validator Decision</th>
+                    <th>HR Action</th>
+                    <th>Status</th>
+                    <th>Vapi Interview</th>
+                    <th>R1 Result</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -476,7 +588,6 @@ export default function JobDetailPage() {
                       <td>
                         <div className="font-semibold text-slate-800 flex items-center gap-1.5">
                           {c.name}
-                          {c.is_imported && <span className="badge-slate !py-0 !px-1.5 !text-[10px]">Imported</span>}
                         </div>
                         {c.phone && <div className="text-xs text-slate-400">{c.phone}</div>}
                       </td>
@@ -518,6 +629,43 @@ export default function JobDetailPage() {
                       <td>
                         <MatchBar score={c.match_score} />
                       </td>
+                      <td>
+                        <span className={c.decision === "PASS" ? "text-emerald-600 font-medium text-xs" : c.decision === "REVIEW" ? "text-amber-600 font-medium text-xs" : "text-red-600 font-medium text-xs"}>
+                          {c.decision}
+                        </span>
+                      </td>
+                      <td>
+                        {c.is_imported && c.application_id ? (
+                          <HrActionCell appId={c.application_id} currentAction={c.hr_action || null} onRefresh={loadImported} />
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {c.is_imported && c.application_id ? (
+                          <span className="badge-slate">
+                            {(c.application_status === "R1_READY" || c.application_status?.toLowerCase() === "shortlisted") ? "R1 Ready" : (c.application_status || "—")}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {c.is_imported && c.application_id && (c.application_status === "R1_READY" || c.application_status?.toLowerCase() === "shortlisted") ? (
+                          <ScheduleVapiInterviewButton appId={c.application_id} />
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {c.is_imported && c.application_id && (c.application_status === "R1_READY" || c.application_status?.toLowerCase() === "shortlisted") ? (
+                          <a href={`/applications/${c.application_id}/r1-results`} className="text-xs font-semibold text-brand-600 hover:text-brand-700 hover:underline inline-flex items-center gap-1">
+                            View Result
+                          </a>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -545,5 +693,98 @@ export default function JobDetailPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<string>("none");
+  const [webCallUrl, setWebCallUrl] = useState<string | null>(null);
+  const [vapiData, setVapiData] = useState<any>(null);
+
+  useEffect(() => {
+    checkStatus();
+  }, [appId]);
+
+  useEffect(() => {
+    let interval: any;
+    if (!["none", "ended", "error", "failed", "canceled"].includes(status)) {
+      interval = setInterval(checkStatus, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [status]);
+
+  async function checkStatus() {
+    try {
+      const res = await apiClient.get(`/admin/candidates/${appId}/vapi-status`);
+      const data = res.data;
+      if (data.status !== "none") {
+        setStatus(data.status);
+        if (data.web_call_url) setWebCallUrl(data.web_call_url);
+        if (data.status === "ended") setVapiData(data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function scheduleInterview() {
+    setLoading(true);
+    try {
+      const res = await apiClient.post(`/admin/candidates/${appId}/vapi-schedule`);
+      setStatus("queued");
+      setWebCallUrl(res.data.web_call_url);
+    } catch (err: any) {
+      alert("Failed to schedule Vapi interview: " + (err?.response?.data?.detail || err.message));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) return <div className="h-7 flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>;
+
+  if (status === "ended" && vapiData) {
+    return (
+      <div className="flex flex-col gap-1 items-start">
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+          <Check className="h-3 w-3" /> Completed
+        </span>
+        <button onClick={() => alert("Transcript:\n\n" + (vapiData.transcript || "No transcript available."))} className="text-[10px] text-brand-600 hover:underline">
+          View Transcript
+        </button>
+        {vapiData.recording_url && (
+          <a href={vapiData.recording_url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 hover:underline">
+            Listen Audio
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  if (!["none", "ended", "error", "failed", "canceled"].includes(status)) {
+    return (
+      <div className="flex flex-col gap-1 items-start">
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+          <Loader2 className="h-3 w-3 animate-spin" /> {status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ")}
+        </span>
+        {webCallUrl && (
+          <a href={webCallUrl} target="_blank" rel="noreferrer" className="text-[10px] text-brand-600 hover:underline font-medium flex items-center gap-1 mt-0.5">
+            <Zap className="h-3 w-3 text-brand-500 fill-brand-500" /> Join Call
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={scheduleInterview}
+      disabled={loading}
+      className="button-primary text-xs h-7 px-3 bg-brand-600 hover:bg-brand-700 text-white border-transparent whitespace-nowrap shadow-sm shadow-brand-600/20"
+    >
+      Schedule R1 Interview
+    </button>
   );
 }

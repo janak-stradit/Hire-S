@@ -2,7 +2,7 @@
 
 import {
   Users, Search, RefreshCw, Loader2, ArrowLeft, Download, SlidersHorizontal, Filter,
-  Building2, MapPin, X, Check, Copy, ChevronLeft, ChevronRight, Briefcase, ChevronDown, Zap
+  Building2, MapPin, X, Check, Copy, ChevronLeft, ChevronRight, Briefcase, ChevronDown, Zap, CheckCircle2
 } from "lucide-react";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { apiClient } from "../../api/client";
@@ -28,7 +28,6 @@ type CandidateRow = {
   verification_status: string;
   evaluated_at: string;
 };
-
 const PAGE_SIZE = 25;
 
 const DECISIONS = ["PASS", "REVIEW"];
@@ -62,15 +61,18 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
   const [decision, setDecision] = useState(initialDecision || searchParams.get("decision") || "");
   const [hrAction, setHrAction] = useState("");
   const [workflow, setWorkflow] = useState("");
+  const [vapiStatus, setVapiStatus] = useState("");
   const [selectedJob, setSelectedJob] = useState("");
   
   const [loading, setLoading]   = useState(true);
-  const [jobTitle, setJobTitle] = useState("");
+  const [jobTitle, setJobTitle]       = useState("");
+  const [runningPipeline, setRunningPipeline] = useState(false);
+  const [pipelineSuccessMessage, setPipelineSuccessMessage] = useState("");
   const [activeJobs, setActiveJobs] = useState<{job_id: string, title: string}[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const hasFilters = Boolean(decision || hrAction || workflow);
+  const hasFilters = Boolean(decision || hrAction || workflow || vapiStatus);
 
   useEffect(() => {
     if (jobId) {
@@ -80,7 +82,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
     }
   }, [jobId]);
 
-  const load = useCallback(async (p: number, q: string, dec: string, hrAct: string, flow: string, jId: string) => {
+  const load = useCallback(async (p: number, q: string, dec: string, hrAct: string, flow: string, vStatus: string, jId: string) => {
     setLoading(true);
     try {
       const res = await apiClient.get("/admin/candidates", {
@@ -92,6 +94,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
           decision: dec || undefined,
           hr_action: hrAct || undefined,
           workflow_state: flow || undefined,
+          vapi_status: vStatus || undefined,
         },
       });
       setCandidates(res.data.items ?? []);
@@ -106,10 +109,10 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      load(page, search, decision, hrAction, workflow, selectedJob);
+      load(page, search, decision, hrAction, workflow, vapiStatus, selectedJob);
     }, 300);
     return () => clearTimeout(timer);
-  }, [page, search, decision, hrAction, workflow, selectedJob, load]);
+  }, [page, search, decision, hrAction, workflow, vapiStatus, selectedJob, load]);
 
   function handleSearch(val: string) { setSearch(val); setPage(1); }
 
@@ -117,6 +120,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
     setDecision("");
     setHrAction("");
     setWorkflow("");
+    setVapiStatus("");
     setSelectedJob("");
     setPage(1);
     setSearch("");
@@ -137,6 +141,21 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a"); a.href = url; a.download = `job_${jobId}_applications.csv`; a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function runPipeline() {
+    if (!jobId) return;
+    setRunningPipeline(true);
+    setPipelineSuccessMessage("");
+    try {
+      const res = await apiClient.post(`/admin/jobs/${jobId}/batch-vapi-schedule`);
+      setPipelineSuccessMessage(res.data.message);
+      load(page, search, decision, hrAction, workflow, selectedJob);
+    } catch (err: any) {
+      alert(err.message || "Failed to run pipeline.");
+    } finally {
+      setRunningPipeline(false);
+    }
   }
 
   function pages(): (number | "…")[] {
@@ -177,8 +196,21 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
           <button onClick={() => load(page, search, decision, hrAction, workflow, selectedJob)} disabled={loading} className="button-secondary">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
+          {jobId && candidates.some(c => c.application_status === "R1_READY") && (
+            <button onClick={runPipeline} disabled={runningPipeline} className="button-primary bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20 border-transparent">
+              {runningPipeline ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-white" />}
+              {runningPipeline ? "Running..." : "Run Pipeline"}
+            </button>
+          )}
         </div>
       </div>
+
+      {pipelineSuccessMessage && (
+        <div className="card card-body flex items-center gap-3 border-emerald-200 bg-emerald-50 animate-fade-in">
+          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+          <p className="text-sm text-emerald-700">{pipelineSuccessMessage}</p>
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative max-w-md">
@@ -221,6 +253,14 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                 {WORKFLOW_STATES.map(o => <option key={o} value={o}>{o.replace(/_/g," ")}</option>)}
               </select>
             </div>
+            <div className="space-y-1 min-w-[160px]">
+              <label className="text-xs font-semibold text-slate-600">Vapi Interview</label>
+              <select className="input text-sm" value={vapiStatus} onChange={e => { setVapiStatus(e.target.value); setPage(1); }}>
+                <option value="">All</option>
+                <option value="Scheduled">Scheduled</option>
+                <option value="Completed">Completed</option>
+              </select>
+            </div>
             {hasFilters && (
               <button onClick={resetFilters} className="button-secondary text-xs h-fit">
                 <X className="h-3.5 w-3.5" /> Clear Filters
@@ -249,6 +289,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                   <th>Status</th>
                   <th>Evaluated At</th>
                   <th>Vapi Interview</th>
+                  <th>R1 Result</th>
                 </tr>
               </thead>
               <tbody>
@@ -284,7 +325,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                     </td>
                     <td>
                       {c.validator_decision === "REVIEW" ? (
-                        <HrActionCell appId={c.application_id} currentAction={c.hr_action} onRefresh={() => load(page, search, decision, hrAction, workflow, selectedJob)} />
+                        <HrActionCell appId={c.application_id} currentAction={c.hr_action} status={c.application_status} onRefresh={() => load(page, search, decision, hrAction, workflow, selectedJob)} />
                       ) : (
                         <span className="text-slate-400 text-sm">—</span>
                       )}
@@ -298,6 +339,15 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                     <td>
                       {(c.application_status === "R1_READY" || c.application_status.toLowerCase() === "shortlisted") && (
                         <ScheduleVapiInterviewButton appId={c.application_id} />
+                      )}
+                    </td>
+                    <td>
+                      {(c.application_status === "R1_READY" || c.application_status.toLowerCase() === "shortlisted") ? (
+                        <a href={`/applications/${c.application_id}/r1-results`} className="text-xs font-semibold text-brand-600 hover:text-brand-700 hover:underline inline-flex items-center gap-1">
+                          View Result
+                        </a>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
                       )}
                     </td>
                   </tr>
@@ -330,7 +380,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
   );
 }
 
-function HrActionCell({ appId, currentAction, onRefresh }: { appId: string, currentAction: string | null, onRefresh: () => void }) {
+function HrActionCell({ appId, currentAction, status, onRefresh }: { appId: string, currentAction: string | null, status?: string, onRefresh: () => void }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -356,16 +406,17 @@ function HrActionCell({ appId, currentAction, onRefresh }: { appId: string, curr
   }
 
   const ACTIONS = ["MOVE_FORWARD", "HOLD"];
+  const disabled = saving || status === "R1_READY" || status?.toLowerCase() === "shortlisted";
   
   return (
     <div ref={ref} className="relative inline-block">
-      <button onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        disabled={saving}
-        className={`${currentAction ? (HR_ACTION_BADGE[currentAction] ?? "badge-slate") : "badge-slate bg-slate-100 text-slate-600 hover:bg-slate-200"} inline-flex items-center gap-1 cursor-pointer transition`}>
+      <button onClick={e => { e.stopPropagation(); if (!disabled) setOpen(o => !o); }}
+        disabled={disabled}
+        className={`${currentAction ? (HR_ACTION_BADGE[currentAction] ?? "badge-slate") : "badge-slate bg-slate-100 text-slate-600 hover:bg-slate-200"} inline-flex items-center gap-1 ${disabled ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'} transition`}>
         {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : (currentAction ? currentAction.replace("_", " ") : "Action")}
-        <ChevronDown className="h-3 w-3" />
+        {!disabled && <ChevronDown className="h-3 w-3" />}
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="absolute left-0 top-full z-20 mt-1 min-w-[140px] rounded-xl border border-slate-200 bg-white shadow-card-lg py-1">
           {ACTIONS.map(a => (
             <button key={a} onClick={(e) => { e.stopPropagation(); pick(a); }}
@@ -391,7 +442,7 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
 
   useEffect(() => {
     let interval: any;
-    if (status === "queued" || status === "in-progress") {
+    if (!["none", "ended", "error", "failed", "canceled"].includes(status)) {
       interval = setInterval(checkStatus, 3000);
     }
     return () => clearInterval(interval);
@@ -446,11 +497,11 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
     );
   }
 
-  if (status === "queued" || status === "in-progress") {
+  if (!["none", "ended", "error", "failed", "canceled"].includes(status)) {
     return (
       <div className="flex flex-col gap-1 items-start">
         <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-          <Loader2 className="h-3 w-3 animate-spin" /> {status === "in-progress" ? "In Progress" : "Queued"}
+          <Loader2 className="h-3 w-3 animate-spin" /> {status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ")}
         </span>
         {webCallUrl && (
           <a href={webCallUrl} target="_blank" rel="noreferrer" className="text-[10px] text-brand-600 hover:underline font-medium flex items-center gap-1 mt-0.5">

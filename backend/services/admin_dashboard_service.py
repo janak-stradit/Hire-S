@@ -87,6 +87,7 @@ class AdminDashboardService:
         decision: str | None,
         hr_action: str | None,
         workflow_state: str | None,
+        vapi_status: str | None,
         search: str | None,
         limit: int,
         offset: int,
@@ -96,8 +97,22 @@ class AdminDashboardService:
         The frontend uses this endpoint for All, HR review, R1 shortlist, Held,
         Rejected, search, pagination, and selected-batch views.
         """
+        from backend.models.vapi_call import VapiCall
         latest_result = self._latest_results(batch_id)
         action = aliased(HRReviewAction)
+        
+        # Subquery for the latest VapiCall per application
+        latest_vapi_subq = (
+            select(
+                VapiCall.application_id,
+                func.max(VapiCall.created_at).label("latest_vapi_created_at")
+            )
+            .group_by(VapiCall.application_id)
+            .subquery("latest_vapi_calls")
+        )
+        
+        latest_vapi_alias = aliased(VapiCall)
+        
         statement = (
             select(Application, ValidatorResult, CandidateProfile, User, Job, action)
             .join(ValidatorResult, ValidatorResult.application_id == Application.application_id)
@@ -116,6 +131,15 @@ class AdminDashboardService:
             .outerjoin(
                 action,
                 action.validator_result_id == ValidatorResult.validator_result_id,
+            )
+            .outerjoin(
+                latest_vapi_subq,
+                latest_vapi_subq.c.application_id == Application.application_id
+            )
+            .outerjoin(
+                latest_vapi_alias,
+                (latest_vapi_alias.application_id == latest_vapi_subq.c.application_id)
+                & (latest_vapi_alias.created_at == latest_vapi_subq.c.latest_vapi_created_at)
             )
         )
         statement = statement.where(
@@ -148,6 +172,15 @@ class AdminDashboardService:
             )
         elif workflow_state == "HOLD":
             statement = statement.where(action.action == "HOLD")
+        
+        if vapi_status == "Scheduled":
+            statement = statement.where(
+                latest_vapi_alias.status.isnot(None),
+                latest_vapi_alias.status != "ended"
+            )
+        elif vapi_status == "Completed":
+            statement = statement.where(latest_vapi_alias.status == "ended")
+            
         if search:
             term = f"%{search.strip().lower()}%"
             statement = statement.where(
@@ -160,12 +193,13 @@ class AdminDashboardService:
                 )
             )
         rows = (await self.session.execute(statement.order_by(ValidatorResult.final_score.desc()))).all()
-        items = [self._candidate_row(*row) for row in rows]
+        # Ensure we pass the updated row elements to _candidate_row since it doesn't need vapi stuff
+        items = [self._candidate_row(*(row[:6])) for row in rows]
         return {"items": items[offset : offset + limit], "total": len(items), "limit": limit, "offset": offset}
 
     async def summary(self, job_id: str | None, batch_id: str | None = None) -> dict[str, int]:
         """Compute dashboard cards for either one batch or the aggregate view."""
-        result = await self.list_candidates(job_id, batch_id, None, None, None, None, 100000, 0)
+        result = await self.list_candidates(job_id, batch_id, None, None, None, None, None, 100000, 0)
         items = result["items"]
         return {
             "total": len(items),
@@ -197,7 +231,7 @@ class AdminDashboardService:
         listing = await self.list_candidates(
             None,
             selected_result.intake_batch_id if selected_result else None,
-            None, None, None, None, 100000, 0,
+            None, None, None, None, None, 100000, 0,
         )
         row = next(
             (

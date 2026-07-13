@@ -62,14 +62,19 @@ async def schedule_vapi_interview(
     # Build Vapi Payload for Web Call
     # https://docs.vapi.ai/api-reference/calls/create-web-call
     
-    # Determine the model mapping (e.g. anthropic-bedrock -> anthropic)
-    llm_model_str = config.llm_model
-    llm_provider = "openai"
-    if "anthropic" in llm_model_str or "claude" in llm_model_str:
-        llm_provider = "anthropic"
+    # Determine the model mapping based on the UI dropdown values
+    config_model = (config.llm_model or "").lower()
     
-    # Mapping exact model names if needed, but Vapi usually accepts what we send or falls back.
-    # For now we just pass what the user configured.
+    if config_model == "anthropic-bedrock" or config_model == "anthropic":
+        llm_provider = "anthropic"
+        llm_model_str = "claude-3-haiku-20240307"
+    elif config_model == "gpt-4o":
+        llm_provider = "openai"
+        llm_model_str = "gpt-4o"
+    else:
+        # Fallback to a safe default if somehow invalid
+        llm_provider = "openai"
+        llm_model_str = "gpt-4o-mini"
     
     payload = {
         "assistant": {

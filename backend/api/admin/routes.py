@@ -343,6 +343,7 @@ async def candidates(
     workflow_state: str | None = Query(
         default=None, pattern="^(PENDING|MOVE_FORWARD|HOLD|REJECT)$"
     ),
+    vapi_status: str | None = Query(default=None, pattern="^(Scheduled|Completed)$"),
     search: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=100, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -350,9 +351,9 @@ async def candidates(
     session: AsyncSession = Depends(get_session),
 ):
     # This is the main candidate table endpoint. Filters mirror the dashboard
-    # tabs: validator decision, HR action, workflow state, search, and batch.
+    # tabs: validator decision, HR action, workflow state, vapi status, search, and batch.
     return await AdminDashboardService(session).list_candidates(
-        job_id, batch_id, decision, hr_action, workflow_state, search, limit, offset
+        job_id, batch_id, decision, hr_action, workflow_state, vapi_status, search, limit, offset
     )
 
 
@@ -450,3 +451,40 @@ async def get_vapi_json(
             "skills": candidate.skills or []
         }
     }
+
+
+@router.post("/jobs/{job_id}/batch-vapi-schedule")
+async def batch_schedule_vapi(
+    job_id: str,
+    current_user: User = Depends(require_operations_user),
+    session: AsyncSession = Depends(get_session)
+):
+    from backend.models.application import Application
+    from backend.api.admin.vapi_calls import schedule_vapi_interview
+    
+    result = await session.execute(
+        select(Application.application_id)
+        .where(
+            Application.job_id == job_id,
+            or_(
+                Application.application_status == "R1_READY",
+                Application.application_status == "shortlisted"
+            )
+        )
+    )
+    app_ids = result.scalars().all()
+    
+    success = 0
+    errors = []
+    
+    for app_id in app_ids:
+        try:
+            await schedule_vapi_interview(app_id=app_id, _=current_user, session=session)
+            success += 1
+        except Exception as e:
+            errors.append(f"{app_id}: {str(e)}")
+            
+    if errors:
+        return {"message": f"Scheduled {success} Vapi interviews. Errors: {len(errors)}", "errors": errors}
+        
+    return {"message": f"Successfully scheduled {success} Vapi interviews."}
