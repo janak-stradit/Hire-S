@@ -24,12 +24,12 @@ async def seed():
     df = pd.read_excel(excel_path)
     
     # We replace NaN with None for SQL insertion
-    df = df.where(pd.notnull(df), None)
+    df = df.where(pd.notnull(df), None)  # type: ignore
     
     async with engine.begin() as conn:
         # Check if already seeded
         res = await conn.execute(text("SELECT count(*) FROM users WHERE role = 'candidate'"))
-        count = res.scalar()
+        count = res.scalar() or 0
         if count > 0:
             print(f"Database already contains {count} candidates. Skipping seed.")
             return

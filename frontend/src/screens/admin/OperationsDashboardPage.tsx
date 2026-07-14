@@ -26,7 +26,7 @@ const quickLinks = [
   { href: "/job-posts",           icon: FileText,     label: "Job Posts",          desc: "Manage active openings",    color: "text-emerald-600", bg: "bg-emerald-50" },
   { href: "/job-requirements/new",icon: Briefcase,    label: "Upload Requirements",desc: "Add new job requirements",  color: "text-amber-600",   bg: "bg-amber-50"   },
   { href: "/batches",             icon: Database,     label: "Sourcing Batches",   desc: "Review import history",     color: "text-purple-600",  bg: "bg-purple-50"  },
-  { href: "/vapi-configuration",  icon: Zap,          label: "Vapi Configuration", desc: "Manage AI interviewer",     color: "text-indigo-600",  bg: "bg-indigo-50"  },
+  { href: "/agent-configuration",  icon: Zap,          label: "Agent Configuration", desc: "Manage AI interviewer",     color: "text-indigo-600",  bg: "bg-indigo-50"  },
   { href: "/manage-users",        icon: Shield,       label: "Manage Users",       desc: "Create & control access",   color: "text-rose-600",    bg: "bg-rose-50"    },
 ];
 

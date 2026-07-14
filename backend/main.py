@@ -11,8 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.applications.routes import router as applications_router
 from backend.api.admin.routes import router as admin_router
-from backend.api.admin.vapi_config import router as vapi_config_router
-from backend.api.admin.vapi_calls import router as vapi_calls_router
+from backend.api.admin.agent_config import router as agent_config_router
+from backend.api.admin.agent_calls import router as agent_calls_router
 from backend.api.auth.routes import router as auth_router
 from backend.api.candidate.routes import router as candidate_router
 from backend.api.excel_intake.routes import router as excel_intake_router
@@ -48,8 +48,8 @@ app.include_router(resumes_router, prefix="/api/resumes", tags=["resumes"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(applications_router, prefix="/api/applications", tags=["applications"])
 app.include_router(admin_router, prefix="/api/admin", tags=["admin"])
-app.include_router(vapi_config_router, prefix="/api/admin")
-app.include_router(vapi_calls_router, prefix="/api/admin")
+app.include_router(agent_config_router, prefix="/api/admin")
+app.include_router(agent_calls_router, prefix="/api/admin")
 app.include_router(validator_router, prefix="/api/validator", tags=["validator"])
 app.include_router(excel_intake_router, prefix="/api/excel-intake", tags=["excel-intake"])
 app.include_router(talent_pool_router, prefix="/api/talent-pool", tags=["talent-pool"])

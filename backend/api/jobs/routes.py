@@ -66,15 +66,23 @@ async def create_job(
     return serialize_job(job)
 
 
+@router.get("", include_in_schema=False)
 @router.get("/list")
 async def list_jobs(
     status_filter: str | None = Query(default=None, alias="status"),
     search: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
 ):
+    from backend.models.validator import ValidatorResult
+    valid_apps = (
+        select(Application.application_id, Application.job_id)
+        .outerjoin(ValidatorResult, ValidatorResult.application_id == Application.application_id)
+        .where(or_(ValidatorResult.decision != "FAIL", ValidatorResult.decision.is_(None)))
+        .subquery("valid_apps")
+    )
     query = (
-        select(Job, func.count(Application.application_id).label("app_count"))
-        .outerjoin(Application, Application.job_id == Job.job_id)
+        select(Job, func.count(valid_apps.c.application_id).label("app_count"))
+        .outerjoin(valid_apps, valid_apps.c.job_id == Job.job_id)
         .group_by(Job.job_id)
     )
     if status_filter:
@@ -186,7 +194,7 @@ async def matching_candidates(
 @router.get("/{job_id}/imported-candidates")
 async def imported_candidates(
     job_id: str,
-    vapi_status: str | None = Query(default=None, pattern="^(Scheduled|Completed)$"),
+    agent_status: str | None = Query(default=None, pattern="^(Scheduled|Completed)$", alias="vapi_status"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -209,22 +217,22 @@ async def imported_candidates(
     )
 
     from backend.models.hr_review import HRReviewAction
-    from backend.models.vapi_call import VapiCall
+    from backend.models.agent_call import AgentCall
     from sqlalchemy.orm import aliased
     
     action = aliased(HRReviewAction)
     
-    # Subquery for the latest VapiCall per application
-    latest_vapi_subq = (
+    # Subquery for the latest AgentCall per application
+    latest_agent_subq = (
         select(
-            VapiCall.application_id,
-            func.max(VapiCall.created_at).label("latest_vapi_created_at")
+            AgentCall.application_id,
+            func.max(AgentCall.created_at).label("latest_agent_created_at")
         )
-        .group_by(VapiCall.application_id)
-        .subquery("latest_vapi_calls")
+        .group_by(AgentCall.application_id)
+        .subquery("latest_agent_calls")
     )
     
-    latest_vapi_alias = aliased(VapiCall)
+    latest_agent_alias = aliased(AgentCall)
     
     stmt = (
         select(CandidateProfile, ParsedResume, Application.application_id, Application.application_status, action.action)
@@ -233,24 +241,24 @@ async def imported_candidates(
         .join(Application, Application.candidate_id == CandidateProfile.candidate_id)
         .outerjoin(action, action.application_id == Application.application_id)
         .outerjoin(
-            latest_vapi_subq,
-            latest_vapi_subq.c.application_id == Application.application_id
+            latest_agent_subq,
+            latest_agent_subq.c.application_id == Application.application_id
         )
         .outerjoin(
-            latest_vapi_alias,
-            (latest_vapi_alias.application_id == latest_vapi_subq.c.application_id)
-            & (latest_vapi_alias.created_at == latest_vapi_subq.c.latest_vapi_created_at)
+            latest_agent_alias,
+            (latest_agent_alias.application_id == latest_agent_subq.c.application_id)
+            & (latest_agent_alias.created_at == latest_agent_subq.c.latest_agent_created_at)
         )
         .where(Application.job_id == job_id)
     )
     
-    if vapi_status == "Scheduled":
+    if agent_status == "Scheduled":
         stmt = stmt.where(
-            latest_vapi_alias.status.isnot(None),
-            latest_vapi_alias.status != "ended"
+            latest_agent_alias.status.isnot(None),
+            latest_agent_alias.status != "ended"
         )
-    elif vapi_status == "Completed":
-        stmt = stmt.where(latest_vapi_alias.status == "ended")
+    elif agent_status == "Completed":
+        stmt = stmt.where(latest_agent_alias.status == "ended")
     
     rows = (await session.execute(stmt)).all()
 

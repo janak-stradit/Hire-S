@@ -212,7 +212,7 @@ def extract_document_text(path: Path) -> str:
     if path.name in MANUAL_SCANNED_TEXT:
         return clean_text(MANUAL_SCANNED_TEXT[path.name])
     if path.suffix.lower() == ".docx":
-        document = Document(path)
+        document = Document(str(path))
         parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
         for table in document.tables:
             for row in table.rows:
@@ -490,8 +490,8 @@ def extract_company(text: str) -> tuple[str, bool]:
     experience = extract_section(text, "experience")
     source = experience or text
     for company in sorted(COMPANIES, key=len, reverse=True):
-        if re.search(rf"(?i)\b{re.escape(company)}\b", source):
-            return company, False
+        if re.search(rf"(?i)\b{re.escape(str(company))}\b", source):
+            return str(company), False
     patterns = [
         r"(?im)^\s*(?:company|organization|employer)\s*[:\-]\s*([^\n|]{2,100})",
         r"(?im)^\s*([A-Z][A-Za-z0-9&.,'() -]{2,80}(?:Ltd\.?|Limited|LLC|Pvt\.? Ltd\.?|Technologies|Solutions|Systems|Services))\s*$",
@@ -635,6 +635,7 @@ def map_resume_to_row(
     email_synthetic = not email or email in used_emails
     if email_synthetic:
         email = synthetic_email(first_name, last_name, identity, used_emails)
+    assert email is not None
     used_emails.add(email)
 
     phones = extract_phones(text)
@@ -786,9 +787,12 @@ def append_rows_to_workbook(rows: list[dict]) -> dict:
                 source_cell = worksheet.cell(row=template_row, column=column)
                 target_cell = worksheet.cell(row=target_row, column=column, value=mapped[header])
                 if source_cell.has_style:
-                    target_cell._style = copy(source_cell._style)
+                    target_cell.font = copy(source_cell.font)  # type: ignore
+                    target_cell.border = copy(source_cell.border)  # type: ignore
+                    target_cell.fill = copy(source_cell.fill)  # type: ignore
+                    target_cell.protection = copy(source_cell.protection)  # type: ignore
                 target_cell.number_format = source_cell.number_format
-                target_cell.alignment = copy(source_cell.alignment)
+                target_cell.alignment = copy(source_cell.alignment)  # type: ignore
             worksheet.row_dimensions[target_row].height = worksheet.row_dimensions[template_row].height
 
         table = worksheet.tables.get("HireXCandidates")
@@ -832,7 +836,7 @@ def validate_workbook(path: Path, existing_count: int, appended_count: int) -> d
     duplicate_ids = len(rows) - len({str(row[index["candidate_id"]]) for row in rows})
     imported_rows = rows[-appended_count:] if appended_count else []
     raw_mismatches = sum(row[index["raw_text"]] != row[index["resume"]] for row in imported_rows)
-    over_limit = sum(len(row[index["resume"]] or "") > 32767 for row in imported_rows)
+    over_limit = sum(len(str(row[index["resume"]] or "")) > 32767 for row in imported_rows)
 
     checks = {
         "final_rows": len(rows),

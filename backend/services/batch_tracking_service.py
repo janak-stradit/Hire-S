@@ -175,6 +175,8 @@ class BatchTrackingService:
     ) -> None:
         """Recalculate the candidate-level pool status from all memberships."""
         profile = await self.session.get(CandidateProfile, candidate_id)
+        if not profile:
+            return
         hired = await self.session.scalar(
             select(func.count()).select_from(CandidateBatchMembership).where(
                 CandidateBatchMembership.candidate_id == candidate_id,

@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, false, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.excel_intake.service import CandidateFetchCriteria, ExcelIntakeService, requires_distribution_audit
@@ -103,11 +103,11 @@ class TalentPoolService:
                     CandidateProfile.profile_refresh_due_at > datetime.now(UTC),
                     or_(
                         and_(
-                            payload.simulation_mode,
+                            true() if payload.simulation_mode else false(),
                             CandidateProfile.source_type == "synthetic",
                         ),
                         and_(
-                            not payload.simulation_mode,
+                            false() if payload.simulation_mode else true(),
                             CandidateProfile.reusable_from_pool.is_(True),
                             CandidateProfile.agent_processing_allowed.is_(True),
                         ),
@@ -184,7 +184,7 @@ class TalentPoolService:
                 await self.session.commit()
             raise
 
-            return {
+        return {
             "batch_id": batch.batch_id,
             "requirement_id": requirement.requirement_id,
             "job_id": job.job_id,

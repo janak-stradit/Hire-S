@@ -3,6 +3,8 @@
 import argparse
 from pathlib import Path
 import sys
+from typing import Any, cast
+
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -31,7 +33,9 @@ def provenance(row: dict) -> tuple[str, str, str, bool]:
 def write_pool(path: Path, headers: list[str], rows: list[list]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
-    sheet = workbook.active
+    sheet = cast(Any, workbook.active)
+    if sheet is None:
+        raise RuntimeError("Workbook has no active sheet")
     sheet.title = "Candidates"
     sheet.append(headers + PROVENANCE_COLUMNS)
     for values in rows:
@@ -62,7 +66,9 @@ def main() -> None:
     )
     args = parser.parse_args()
     workbook = load_workbook(MASTER, read_only=True, data_only=True)
-    sheet = workbook.active
+    sheet = cast(Any, workbook.active)
+    if sheet is None:
+        raise RuntimeError("Master workbook has no active sheet")
     source_rows = sheet.iter_rows(values_only=True)
     headers = [str(value) for value in next(source_rows)]
     real_rows: list[list] = []

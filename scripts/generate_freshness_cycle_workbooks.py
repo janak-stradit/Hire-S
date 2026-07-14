@@ -8,6 +8,9 @@ from uuid import uuid4
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.cell.cell import Cell
+from openpyxl.styles import Font, PatternFill, Alignment, Border
+from typing import cast
 
 BASE_WORKBOOK = Path("storage/candidate_pool/test_synthetic_candidates.xlsx")
 OUTPUT_DIR = Path("storage/candidate_pool/freshness_cycles")
@@ -112,7 +115,9 @@ def slug(value: str) -> str:
 def load_rows() -> tuple[list[str], list[dict]]:
     workbook = load_workbook(BASE_WORKBOOK, data_only=True)
     sheet = workbook.active
-    headers = [sheet.cell(1, column).value for column in range(1, sheet.max_column + 1)]
+    if not isinstance(sheet, Worksheet):
+        raise ValueError("Valid worksheet not found")
+    headers = [str(sheet.cell(1, column).value) for column in range(1, sheet.max_column + 1)]
     rows = []
     for row in sheet.iter_rows(min_row=2, values_only=True):
         record = {header: value for header, value in zip(headers, row, strict=True)}
@@ -124,15 +129,17 @@ def load_rows() -> tuple[list[str], list[dict]]:
 def copy_header_style(source: Path, target: Workbook, sheet: Worksheet) -> None:
     source_workbook = load_workbook(source)
     source_sheet = source_workbook.active
+    if not isinstance(source_sheet, Worksheet):
+        raise ValueError("Valid source worksheet not found")
     for column in range(1, source_sheet.max_column + 1):
         target_cell = sheet.cell(1, column)
         source_cell = source_sheet.cell(1, column)
-        target_cell._style = copy(source_cell._style)
-        target_cell.font = copy(source_cell.font)
-        target_cell.fill = copy(source_cell.fill)
-        target_cell.alignment = copy(source_cell.alignment)
-        target_cell.border = copy(source_cell.border)
-        sheet.column_dimensions[target_cell.column_letter].width = source_sheet.column_dimensions[target_cell.column_letter].width or 18
+        if isinstance(target_cell, Cell) and isinstance(source_cell, Cell):
+            target_cell.font = cast(Font, copy(source_cell.font))
+            target_cell.fill = cast(PatternFill, copy(source_cell.fill))
+            target_cell.alignment = cast(Alignment, copy(source_cell.alignment))
+            target_cell.border = cast(Border, copy(source_cell.border))
+            sheet.column_dimensions[target_cell.column_letter].width = source_sheet.column_dimensions[target_cell.column_letter].width or 18
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
     source_workbook.close()
@@ -413,13 +420,18 @@ def new_candidate(sequence: int, wave: int, rng: random.Random) -> dict:
 def write_workbook(path: Path, headers: list[str], rows: list[dict]) -> None:
     workbook = Workbook()
     sheet = workbook.active
+    if not isinstance(sheet, Worksheet):
+        raise ValueError("Worksheet creation failed")
     sheet.title = "Candidates"
     sheet.append(headers)
     for row in rows:
         sheet.append([row.get(header) for header in headers])
     copy_header_style(BASE_WORKBOOK, workbook, sheet)
     for column in range(1, len(headers) + 1):
-        letter = sheet.cell(1, column).column_letter
+        cell = sheet.cell(1, column)
+        if not isinstance(cell, Cell):
+            continue
+        letter = cell.column_letter
         width = min(max(len(str(headers[column - 1])) + 4, 14), 36)
         if headers[column - 1] in {"raw_text", "resume", "projects", "summary", "education", "certifications"}:
             width = 52

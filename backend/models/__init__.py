@@ -14,8 +14,9 @@ from backend.models.hr_review import HRReviewAction
 from backend.models.resume import Resume
 from backend.models.user import User
 from backend.models.validator import ExcelIntakeBatch, ParsedJobDescription, ParsedResume, ValidatorResult
-from backend.models.vapi_config import VapiConfig
-from backend.models.vapi_call import VapiCall
+from backend.models.agent_config import AgentConfig
+from backend.models.agent_call import AgentCall
+from backend.models.retell_call import RetellCall
 
 __all__ = [
     "Application",
@@ -35,6 +36,7 @@ __all__ = [
     "Resume",
     "User",
     "ValidatorResult",
-    "VapiConfig",
-    "VapiCall",
+    "AgentConfig",
+    "AgentCall",
+    "RetellCall",
 ]

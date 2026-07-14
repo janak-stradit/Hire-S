@@ -87,7 +87,7 @@ class AdminDashboardService:
         decision: str | None,
         hr_action: str | None,
         workflow_state: str | None,
-        vapi_status: str | None,
+        agent_status: str | None,
         search: str | None,
         limit: int,
         offset: int,
@@ -97,21 +97,21 @@ class AdminDashboardService:
         The frontend uses this endpoint for All, HR review, R1 shortlist, Held,
         Rejected, search, pagination, and selected-batch views.
         """
-        from backend.models.vapi_call import VapiCall
+        from backend.models.agent_call import AgentCall
         latest_result = self._latest_results(batch_id)
         action = aliased(HRReviewAction)
         
-        # Subquery for the latest VapiCall per application
-        latest_vapi_subq = (
+        # Subquery for the latest AgentCall per application
+        latest_agent_subq = (
             select(
-                VapiCall.application_id,
-                func.max(VapiCall.created_at).label("latest_vapi_created_at")
+                AgentCall.application_id,
+                func.max(AgentCall.created_at).label("latest_agent_created_at")
             )
-            .group_by(VapiCall.application_id)
-            .subquery("latest_vapi_calls")
+            .group_by(AgentCall.application_id)
+            .subquery("latest_agent_calls")
         )
         
-        latest_vapi_alias = aliased(VapiCall)
+        latest_agent_alias = aliased(AgentCall)
         
         statement = (
             select(Application, ValidatorResult, CandidateProfile, User, Job, action)
@@ -133,13 +133,13 @@ class AdminDashboardService:
                 action.validator_result_id == ValidatorResult.validator_result_id,
             )
             .outerjoin(
-                latest_vapi_subq,
-                latest_vapi_subq.c.application_id == Application.application_id
+                latest_agent_subq,
+                latest_agent_subq.c.application_id == Application.application_id
             )
             .outerjoin(
-                latest_vapi_alias,
-                (latest_vapi_alias.application_id == latest_vapi_subq.c.application_id)
-                & (latest_vapi_alias.created_at == latest_vapi_subq.c.latest_vapi_created_at)
+                latest_agent_alias,
+                (latest_agent_alias.application_id == latest_agent_subq.c.application_id)
+                & (latest_agent_alias.created_at == latest_agent_subq.c.latest_agent_created_at)
             )
         )
         statement = statement.where(
@@ -154,6 +154,9 @@ class AdminDashboardService:
             statement = statement.where(ValidatorResult.intake_batch_id == batch_id)
         if decision:
             statement = statement.where(ValidatorResult.decision == decision)
+        elif not workflow_state:
+            # Exclude FAIL candidates by default since they are not considered
+            statement = statement.where(ValidatorResult.decision != "FAIL")
         if hr_action:
             statement = statement.where(action.action == hr_action)
         if workflow_state == "PENDING":
@@ -173,13 +176,13 @@ class AdminDashboardService:
         elif workflow_state == "HOLD":
             statement = statement.where(action.action == "HOLD")
         
-        if vapi_status == "Scheduled":
+        if agent_status == "Scheduled":
             statement = statement.where(
-                latest_vapi_alias.status.isnot(None),
-                latest_vapi_alias.status != "ended"
+                latest_agent_alias.status.isnot(None),
+                latest_agent_alias.status != "ended"
             )
-        elif vapi_status == "Completed":
-            statement = statement.where(latest_vapi_alias.status == "ended")
+        elif agent_status == "Completed":
+            statement = statement.where(latest_agent_alias.status == "ended")
             
         if search:
             term = f"%{search.strip().lower()}%"
@@ -193,7 +196,7 @@ class AdminDashboardService:
                 )
             )
         rows = (await self.session.execute(statement.order_by(ValidatorResult.final_score.desc()))).all()
-        # Ensure we pass the updated row elements to _candidate_row since it doesn't need vapi stuff
+        # Ensure we pass the updated row elements to _candidate_row since it doesn't need agent stuff
         items = [self._candidate_row(*(row[:6])) for row in rows]
         return {"items": items[offset : offset + limit], "total": len(items), "limit": limit, "offset": offset}
 
@@ -244,9 +247,17 @@ class AdminDashboardService:
         if not row:
             raise HTTPException(status_code=404, detail="Evaluated application not found")
         result = await self.session.get(ValidatorResult, row["validator_result_id"])
+        if not result:
+            raise HTTPException(status_code=404, detail="Validator result not found")
         parsed = await self.session.get(ParsedResume, result.parsed_resume_id)
+        if not parsed:
+            raise HTTPException(status_code=404, detail="Parsed resume not found")
         profile = await self.session.get(CandidateProfile, result.candidate_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="Candidate profile not found")
         job = await self.session.get(Job, result.job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
         resume = (
             await self.session.execute(
                 select(Resume).where(Resume.candidate_id == result.candidate_id).order_by(Resume.uploaded_at.desc())
@@ -364,6 +375,8 @@ class AdminDashboardService:
         if detail["hr_action"] is not None:
             raise HTTPException(status_code=409, detail="This candidate already has a final HR decision")
         application = await self.session.get(Application, application_id)
+        if not application:
+            raise HTTPException(status_code=404, detail="Application not found")
         action = HRReviewAction(
             application_id=application_id,
             validator_result_id=detail["validator_result_id"],

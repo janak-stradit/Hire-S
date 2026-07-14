@@ -612,16 +612,16 @@ def validate_dataframe(frame: pd.DataFrame) -> dict:
     checks = {
         "rows": len(frame),
         "columns": list(frame.columns),
-        "duplicate_emails": int(frame["email"].duplicated().sum()),
-        "duplicate_phones": int(frame["phone"].duplicated().sum()),
-        "duplicate_candidate_ids": int(frame["candidate_id"].duplicated().sum()),
-        "blank_resumes": int(frame["resume"].str.strip().eq("").sum()),
-        "minimum_resume_characters": int(resume_lengths.min()),
+        "duplicate_emails": frame["email"].duplicated().sum(),
+        "duplicate_phones": frame["phone"].duplicated().sum(),
+        "duplicate_candidate_ids": frame["candidate_id"].duplicated().sum(),
+        "blank_resumes": frame["resume"].str.strip().eq("").sum(),
+        "minimum_resume_characters": resume_lengths.min(),
         "average_resume_characters": round(float(resume_lengths.mean()), 2),
         "maximum_resume_characters": int(resume_lengths.max()),
         "resume_cells_over_excel_limit": int((resume_lengths > 32767).sum()),
         "resume_raw_text_mismatches": int((frame["resume"] != frame["raw_text"]).sum()),
-        "invalid_application_timeline": int((frame["applied_at"] < frame["uploaded_at"]).sum()),
+        "invalid_application_timeline": ((frame["applied_at"] < frame["uploaded_at"]).sum()),
     }
     assert checks["rows"] == TOTAL_CANDIDATES
     assert checks["columns"] == FINAL_COLUMNS

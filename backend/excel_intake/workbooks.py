@@ -4,14 +4,16 @@ import csv
 from io import BytesIO, StringIO
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from openpyxl import Workbook, load_workbook
-from openpyxl.formatting.rule import CellIsRule
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl import Workbook, load_workbook  # type: ignore
+from openpyxl.formatting.rule import CellIsRule  # type: ignore
+from openpyxl.styles import Alignment, Font, PatternFill  # type: ignore
+from openpyxl.utils import get_column_letter  # type: ignore
+from openpyxl.worksheet.datavalidation import DataValidation  # type: ignore
+from openpyxl.worksheet.table import Table, TableStyleInfo  # type: ignore
+from openpyxl.worksheet.worksheet import Worksheet  # type: ignore
+from openpyxl.cell.cell import Cell  # type: ignore
 
 from backend.excel_intake.contracts import CandidateIntakeRow, JobRequirementRow
 from backend.taxonomy import get_taxonomy
@@ -153,7 +155,9 @@ def _records(path: Path, preferred_sheet: str) -> list[dict[str, Any]]:
     if not path.exists():
         raise WorkbookValidationError(f"Workbook not found: {path}")
     workbook = load_workbook(path, read_only=True, data_only=True)
-    sheet = workbook[preferred_sheet] if preferred_sheet in workbook.sheetnames else workbook.active
+    _active = workbook[preferred_sheet] if preferred_sheet in workbook.sheetnames else workbook.active
+    assert _active is not None, f"Workbook has no active sheet: {path}"
+    sheet = _active
     rows = sheet.iter_rows(values_only=True)
     try:
         headers = [str(value).strip() if value is not None else "" for value in next(rows)]
@@ -266,7 +270,11 @@ def read_active_requirement(path: Path) -> JobRequirementRow:
 
 def upsert_requirement(path: Path, requirement: JobRequirementRow, created_by: str) -> None:
     workbook = load_workbook(path)
-    sheet = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+    _active = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+    assert _active is not None, "Workbook has no active sheet"
+    sheet = _active
+    if not isinstance(sheet, Worksheet):
+        raise WorkbookValidationError("Valid worksheet not found")
     headers = _ensure_requirement_columns(sheet)
     row_index = next(
         (row for row in range(2, sheet.max_row + 1) if sheet.cell(row, 1).value == requirement.requirement_id),
@@ -284,8 +292,8 @@ def upsert_requirement(path: Path, requirement: JobRequirementRow, created_by: s
     created_at_column = headers.index("created_at") + 1
     sheet.cell(row_index, created_at_column).number_format = "@"
     if sheet.tables:
-        table = next(iter(sheet.tables.values()))
-        table.ref = f"A1:{get_column_letter(len(headers))}{sheet.max_row}"
+        tbl: Table = next(iter(sheet.tables.values()))  # type: ignore[assignment]
+        tbl.ref = f"A1:{get_column_letter(len(headers))}{sheet.max_row}"
     workbook.save(path)
 
 
@@ -303,7 +311,11 @@ def import_requirements(path: Path, filename: str, content: bytes, created_by: s
     if not rows:
         raise WorkbookValidationError("Bulk JD upload file does not contain any data rows")
     workbook = load_workbook(path)
-    sheet = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+    _active = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+    assert _active is not None, "Workbook has no active sheet"
+    sheet = _active
+    if not isinstance(sheet, Worksheet):
+        raise WorkbookValidationError("Valid worksheet not found")
     headers = _ensure_requirement_columns(sheet)
     existing_ids = {
         str(sheet.cell(row, 1).value or "").strip()
@@ -356,8 +368,8 @@ def import_requirements(path: Path, filename: str, content: bytes, created_by: s
         sheet.cell(target_row, created_at_column).number_format = "@"
         imported.append(requirement.requirement_id)
     if sheet.tables:
-        table = next(iter(sheet.tables.values()))
-        table.ref = f"A1:{get_column_letter(len(headers))}{sheet.max_row}"
+        tbl: Table = next(iter(sheet.tables.values()))  # type: ignore[assignment]
+        tbl.ref = f"A1:{get_column_letter(len(headers))}{sheet.max_row}"
     workbook.save(path)
     return {
         "filename": filename,
@@ -381,7 +393,9 @@ def _uploaded_requirement_rows(filename: str, content: bytes) -> list[dict[str, 
         ]
     if suffix in {".xlsx", ".xlsm"}:
         workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-        sheet = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+        _active = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+        assert _active is not None, "Workbook has no active sheet"
+        sheet = _active
         rows = sheet.iter_rows(values_only=True)
         try:
             headers = [str(value).strip() if value is not None else "" for value in next(rows)]
@@ -400,7 +414,9 @@ def _uploaded_requirement_rows(filename: str, content: bytes) -> list[dict[str, 
 
 def update_requirement_status(path: Path, requirement_id: str, status: str) -> JobRequirementRow:
     workbook = load_workbook(path)
-    sheet = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+    _active = workbook["Job_Requirements"] if "Job_Requirements" in workbook.sheetnames else workbook.active
+    assert _active is not None, "Workbook has no active sheet"
+    sheet: Worksheet = _active  # type: ignore[assignment]
     headers = [str(cell.value).strip() if cell.value is not None else "" for cell in sheet[1]]
     status_column = headers.index("status") + 1
     target_row = None
@@ -450,14 +466,17 @@ def read_candidates(path: Path, include_synthetic: bool = False) -> tuple[list[C
 def create_requirement_template(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
-    sheet = workbook.active
+    _active = workbook.active
+    if not isinstance(_active, Worksheet):
+        raise ValueError("Worksheet creation failed")
+    sheet: Worksheet = _active
     sheet.title = "Job_Requirements"
     sheet.append(REQUIREMENT_COLUMNS)
     taxonomy = get_taxonomy()
     for source_requirement in DEFAULT_JOB_REQUIREMENTS:
         requirement = list(source_requirement)
         requirement[26] = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
-        primary, secondary = taxonomy.role_keywords(requirement[1])
+        primary, secondary = taxonomy.role_keywords(str(requirement[1]))
         required = _list(requirement[7])
         enriched_preferred = list(dict.fromkeys([
             *_list(requirement[8]),
@@ -474,18 +493,22 @@ def create_requirement_template(path: Path) -> None:
     for column, width in widths.items():
         sheet.column_dimensions[column].width = width
     for row in sheet.iter_rows(min_row=2):
+        last_cell: Cell | None = None
         for cell in row:
-            cell.alignment = Alignment(vertical="top", wrap_text=cell.column in {8, 9, 10, 11, 14})
-        sheet.row_dimensions[cell.row].height = 90
+            if isinstance(cell, Cell):
+                cell.alignment = cast(Any, Alignment(vertical="top", wrap_text=cell.column in {8, 9, 10, 11, 14}))
+                last_cell = cell
+        if last_cell is not None:
+            sheet.row_dimensions[last_cell.row].height = 90
     for cell in sheet["AA"][1:]:
         cell.number_format = "@"
     status_validation = DataValidation(type="list", formula1='"draft,active,inactive"')
-    sheet.add_data_validation(status_validation)
+    sheet.add_data_validation(cast(Any, status_validation))
     status_validation.add("Y2:Y500")
     workbook.save(path)
 
 
-def _ensure_requirement_columns(sheet) -> list[str]:
+def _ensure_requirement_columns(sheet: Worksheet) -> list[str]:
     headers = [str(cell.value).strip() if cell.value is not None else "" for cell in sheet[1]]
     for column in REQUIREMENT_COLUMNS:
         if column not in headers:
@@ -505,37 +528,41 @@ def export_results(path: Path, rows: list[dict[str, Any]], title: str) -> None:
     ]
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = title[:31]
+    if not isinstance(sheet, Worksheet):
+        raise ValueError("Worksheet creation failed")
+    cast(Any, sheet).title = title[:31]
     sheet.append(headers)
     for row in rows:
         sheet.append([row.get(header) for header in headers])
     end_row = max(sheet.max_row, 2)
     _style_table(sheet, f"A1:V{end_row}", "ScreeningResults")
-    sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:V{end_row}"
+    cast(Any, sheet).freeze_panes = "A2"
+    cast(Any, sheet.auto_filter).ref = f"A1:V{end_row}"
     for column in ("L", "M", "N", "O", "P", "Q"):
         for cell in sheet[column][1:]:
-            cell.number_format = "0.00"
+            cast(Any, cell).number_format = "0.00"
     sheet.conditional_formatting.add(
         f"L2:L{end_row}", CellIsRule(operator="greaterThanOrEqual", formula=["75"], fill=PatternFill("solid", fgColor="DCFCE7"))
     )
     widths = {"A": 38, "B": 18, "C": 38, "D": 38, "E": 24, "F": 34, "G": 24, "H": 26, "J": 12, "K": 20, "L": 14, "R": 60, "S": 18, "T": 22, "U": 44, "V": 22}
     for column, width in widths.items():
-        sheet.column_dimensions[column].width = width
+        cast(Any, sheet.column_dimensions[column]).width = width
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
-            cell.alignment = Alignment(vertical="top", wrap_text=cell.column in {18, 21})
+            if isinstance(cell, Cell):
+                cell.alignment = cast(Any, Alignment(vertical="top", wrap_text=cell.column in {18, 21}))
     workbook.save(path)
 
 
-def _style_table(sheet, reference: str, name: str) -> None:
+def _style_table(sheet: Worksheet, reference: str, name: str) -> None:
     table = Table(displayName=name, ref=reference)
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleMedium2", showFirstColumn=False, showLastColumn=False,
         showRowStripes=True, showColumnStripes=False,
     )
-    sheet.add_table(table)
+    sheet.add_table(cast(Any, table))
     for cell in sheet[1]:
-        cell.fill = PatternFill("solid", fgColor="0F766E")
-        cell.font = Font(color="FFFFFF", bold=True)
-        cell.alignment = Alignment(vertical="center", wrap_text=True)
+        if isinstance(cell, Cell):
+            cell.fill = cast(Any, PatternFill("solid", fgColor="0F766E"))
+            cell.font = cast(Any, Font(color="FFFFFF", bold=True))
+            cell.alignment = cast(Any, Alignment(vertical="center", wrap_text=True))

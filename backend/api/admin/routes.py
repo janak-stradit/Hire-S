@@ -6,6 +6,7 @@ cards, candidate lists, evidence detail, pool analytics, reason bank, sourcing
 batches, and final HR actions for REVIEW candidates.
 """
 
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, update
@@ -22,10 +23,12 @@ from backend.schemas.admin import (
     ReviewActionRequest,
     ReviewActionResponse,
 )
-from backend.schemas.user import UserRead
+from backend.schemas.user import UserRead, UserRole
 from backend.services.admin_dashboard_service import AdminDashboardService
 from backend.services.security import hash_password
+import warnings
 
+warnings.filterwarnings("ignore")
 router = APIRouter()
 
 
@@ -50,7 +53,7 @@ class UserUpdateRequest(BaseModel):
 
 class CreateUserRequest(BaseModel):
     email: str
-    role: str = "recruiter"
+    role: UserRole = "recruiter"
     password: str
 
 
@@ -154,6 +157,8 @@ async def candidates_master(
     talent_pool_status: str | None = Query(default=None),
     source_type: str | None = Query(default=None),
     freshness_status: str | None = Query(default=None),
+    exp_min: float | None = Query(default=None),
+    exp_max: float | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     _: User = Depends(require_operations_user),
@@ -181,6 +186,10 @@ async def candidates_master(
         query = query.where(CandidateProfile.source_type == source_type)
     if freshness_status:
         query = query.where(CandidateProfile.profile_freshness_status == freshness_status)
+    if exp_min is not None:
+        query = query.where(CandidateProfile.total_experience >= exp_min)
+    if exp_max is not None:
+        query = query.where(CandidateProfile.total_experience <= exp_max)
 
     total_result = await session.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar_one()
@@ -240,14 +249,24 @@ async def summary(
     from backend.models.application import Application as AppModel
     from backend.models.job import Job as JobModel
     from backend.models.resume import Resume as ResumeModel
+    from backend.models.validator import ValidatorResult
+    from sqlalchemy import or_
 
     # Aggregate operations metrics for the HR dashboard cards.
     total_candidates = (
         await session.execute(select(func.count()).select_from(CandidateProfile))
     ).scalar_one()
-    total_applications = (
-        await session.execute(select(func.count()).select_from(AppModel))
-    ).scalar_one()
+    app_query = (
+        select(func.count())
+        .select_from(AppModel)
+        .outerjoin(ValidatorResult, ValidatorResult.application_id == AppModel.application_id)
+        .where(or_(ValidatorResult.decision != "FAIL", ValidatorResult.decision.is_(None)))
+    )
+    if job_id:
+        app_query = app_query.where(AppModel.job_id == job_id)
+    if batch_id:
+        app_query = app_query.where(AppModel.intake_batch_id == batch_id)
+    total_applications = (await session.execute(app_query)).scalar_one()
     active_requirements = (
         await session.execute(
             select(func.count()).select_from(JobModel).where(JobModel.status == "open")
@@ -274,7 +293,7 @@ async def summary(
             .where(CandidateProfile.talent_pool_status == "AVAILABLE")
         )
     ).scalar_one()
-    week_ago = datetime.utcnow() - timedelta(days=7)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
     resumes_this_week = (
         await session.execute(
             select(func.count()).select_from(ResumeModel).where(ResumeModel.uploaded_at >= week_ago)
@@ -285,14 +304,17 @@ async def summary(
     from backend.models.hr_review import HRReviewAction
 
     review_subq = select(HRReviewAction.application_id)
-    pending_reviews = (
-        await session.execute(
-            select(func.count())
-            .select_from(ValidatorResult)
-            .where(ValidatorResult.decision == "REVIEW")
-            .where(ValidatorResult.application_id.notin_(review_subq))
-        )
-    ).scalar_one()
+    pending_query = (
+        select(func.count())
+        .select_from(ValidatorResult)
+        .where(ValidatorResult.decision == "REVIEW")
+        .where(ValidatorResult.application_id.notin_(review_subq))
+    )
+    if job_id:
+        pending_query = pending_query.where(ValidatorResult.job_id == job_id)
+    if batch_id:
+        pending_query = pending_query.where(ValidatorResult.intake_batch_id == batch_id)
+    pending_reviews = (await session.execute(pending_query)).scalar_one()
     return {
         "total_candidates": total_candidates,
         "total_applications": total_applications,
@@ -343,7 +365,7 @@ async def candidates(
     workflow_state: str | None = Query(
         default=None, pattern="^(PENDING|MOVE_FORWARD|HOLD|REJECT)$"
     ),
-    vapi_status: str | None = Query(default=None, pattern="^(Scheduled|Completed)$"),
+    agent_status: str | None = Query(default=None, pattern="^(Scheduled|Completed)$"),
     search: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=100, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
@@ -351,9 +373,9 @@ async def candidates(
     session: AsyncSession = Depends(get_session),
 ):
     # This is the main candidate table endpoint. Filters mirror the dashboard
-    # tabs: validator decision, HR action, workflow state, vapi status, search, and batch.
+    # tabs: validator decision, HR action, workflow state, agent status, search, and batch.
     return await AdminDashboardService(session).list_candidates(
-        job_id, batch_id, decision, hr_action, workflow_state, vapi_status, search, limit, offset
+        job_id, batch_id, decision, hr_action, workflow_state, agent_status, search, limit, offset
     )
 
 
@@ -411,8 +433,8 @@ async def update_pool_status(
     return {"candidate_id": candidate_id, "talent_pool_status": payload.talent_pool_status}
 
 
-@router.get("/candidates/{application_id}/vapi-json")
-async def get_vapi_json(
+@router.get("/candidates/{application_id}/agent-json")
+async def get_agent_json(
     application_id: str,
     _: User = Depends(require_operations_user),
     session: AsyncSession = Depends(get_session),
@@ -453,14 +475,14 @@ async def get_vapi_json(
     }
 
 
-@router.post("/jobs/{job_id}/batch-vapi-schedule")
-async def batch_schedule_vapi(
+@router.post("/jobs/{job_id}/batch-agent-schedule")
+async def batch_schedule_agent(
     job_id: str,
     current_user: User = Depends(require_operations_user),
     session: AsyncSession = Depends(get_session)
 ):
     from backend.models.application import Application
-    from backend.api.admin.vapi_calls import schedule_vapi_interview
+    from backend.api.admin.agent_calls import schedule_agent_interview
     
     result = await session.execute(
         select(Application.application_id)
@@ -479,12 +501,12 @@ async def batch_schedule_vapi(
     
     for app_id in app_ids:
         try:
-            await schedule_vapi_interview(app_id=app_id, _=current_user, session=session)
+            await schedule_agent_interview(app_id=app_id, _=current_user, session=session)
             success += 1
         except Exception as e:
             errors.append(f"{app_id}: {str(e)}")
             
     if errors:
-        return {"message": f"Scheduled {success} Vapi interviews. Errors: {len(errors)}", "errors": errors}
+        return {"message": f"Scheduled {success} Agent interviews. Errors: {len(errors)}", "errors": errors}
         
-    return {"message": f"Successfully scheduled {success} Vapi interviews."}
+    return {"message": f"Successfully scheduled {success} Agent interviews."}

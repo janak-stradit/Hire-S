@@ -1,12 +1,12 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database.base import Base
 
-class VapiCall(Base):
+class AgentCall(Base):
     __tablename__ = "vapi_calls"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -17,6 +17,7 @@ class VapiCall(Base):
     transcript: Mapped[str | None] = mapped_column(Text)
     summary: Mapped[str | None] = mapped_column(Text)
     recording_url: Mapped[str | None] = mapped_column(Text)
+    custom_data: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 

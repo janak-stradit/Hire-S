@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { 
   ArrowLeft, Loader2, User, Briefcase, Mail, Phone, MapPin, 
-  CheckCircle2, FileText, Zap, BarChart3, MessageSquare
+  CheckCircle2, FileText, Zap, BarChart3, MessageSquare, Database
 } from "lucide-react";
 import { apiClient } from "@/api/client";
 
@@ -16,6 +16,7 @@ export default function R1ResultsPage() {
   const [candidate, setCandidate] = useState<any>(null);
   const [job, setJob] = useState<any>(null);
   const [error, setError] = useState("");
+  const [callData, setCallData] = useState<any>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -25,11 +26,16 @@ export default function R1ResultsPage() {
         const candData = candRes.data;
         setCandidate(candData);
 
-        // Fetch job details to get the full JD
+        // Fetch job details
         if (candData.job_id) {
           const jobRes = await apiClient.get(`/jobs/${candData.job_id}`);
           setJob(jobRes.data);
         }
+        
+        // Fetch Call Status once initially
+        const callRes = await apiClient.get(`/admin/candidates/${app_id}/agent-status`);
+        setCallData(callRes.data);
+        
       } catch (err: any) {
         setError(err.message || "Failed to load results");
       } finally {
@@ -41,6 +47,23 @@ export default function R1ResultsPage() {
       loadData();
     }
   }, [app_id]);
+
+  // Polling for call status if not ended
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (callData && callData.status !== "ended" && callData.status !== "none") {
+      interval = setInterval(async () => {
+        try {
+          const callRes = await apiClient.get(`/admin/candidates/${app_id}/agent-status`);
+          setCallData(callRes.data);
+          if (callRes.data.status === "ended") {
+            clearInterval(interval);
+          }
+        } catch (e) {}
+      }, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [callData?.status, app_id]);
 
   if (loading) {
     return (
@@ -144,38 +167,116 @@ export default function R1ResultsPage() {
 
         {/* Bottom Row: Results Placeholder */}
         <div className="w-full">
-          <div className="card card-body min-h-[500px] flex flex-col">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-              <h2 className="section-label flex items-center gap-2 text-lg">
-                <Zap className="h-5 w-5 text-amber-500" /> R1 Analysis Matrix
-              </h2>
-              <span className="badge-yellow animate-pulse">Coming Soon</span>
+          {callData?.status === "none" ? (
+            <div className="card card-body min-h-[300px] flex flex-col items-center justify-center text-center">
+              <MessageSquare className="h-12 w-12 text-slate-300 mb-4" />
+              <h3 className="text-lg font-bold text-slate-700">No Interview Found</h3>
+              <p className="text-sm text-slate-500 mt-2">This candidate has not had an R1 interview yet.</p>
             </div>
-            
-            <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4 p-8 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
-              <div className="flex gap-4 mb-4">
-                <div className="h-16 w-16 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center">
-                  <MessageSquare className="h-8 w-8 text-blue-500" />
+          ) : callData?.status !== "ended" ? (
+            <div className="card card-body min-h-[300px] flex flex-col items-center justify-center text-center">
+              <Loader2 className="h-12 w-12 text-brand-500 animate-spin mb-4" />
+              <h3 className="text-lg font-bold text-slate-700">Interview {callData?.status === "in-progress" ? "In Progress" : "Queued"}</h3>
+              <p className="text-sm text-slate-500 mt-2">Waiting for the interview to complete...</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              
+              {/* Left Column: Transcript */}
+              <div className="lg:col-span-7 card card-body flex flex-col h-[750px]">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4 shrink-0">
+                  <h2 className="section-label flex items-center gap-2 text-lg">
+                    <MessageSquare className="h-5 w-5 text-blue-500" /> Full Transcript
+                  </h2>
+                  <span className="badge-emerald flex items-center gap-1.5 px-3 py-1 text-sm"><CheckCircle2 className="h-4 w-4" /> Interview Completed</span>
                 </div>
-                <div className="h-16 w-16 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center">
-                  <FileText className="h-8 w-8 text-emerald-500" />
-                </div>
-                <div className="h-16 w-16 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center">
-                  <BarChart3 className="h-8 w-8 text-brand-500" />
-                </div>
+                
+                {callData?.transcript ? (
+                  <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 text-sm text-slate-700 whitespace-pre-wrap font-mono leading-relaxed flex-1 overflow-y-auto">
+                    {callData.transcript}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center p-10 text-center text-slate-400">No transcript available</div>
+                )}
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Deeper Analysis Engine</h3>
-              <p className="text-sm text-slate-500 max-w-md leading-relaxed">
-                This panel is ready for the advanced R1 transcript and audio analysis. We will parse the interview data to generate a comprehensive matrix of:
-              </p>
-              <div className="flex flex-wrap justify-center gap-2 max-w-md pt-2">
-                <span className="badge-slate bg-white shadow-sm border border-slate-200 text-slate-700 px-3 py-1">Technical Skills</span>
-                <span className="badge-slate bg-white shadow-sm border border-slate-200 text-slate-700 px-3 py-1">Soft Skills</span>
-                <span className="badge-slate bg-white shadow-sm border border-slate-200 text-slate-700 px-3 py-1">Communication</span>
-                <span className="badge-slate bg-white shadow-sm border border-slate-200 text-slate-700 px-3 py-1">Behavioral Traits</span>
+
+              {/* Right Column: Analysis */}
+              <div className="lg:col-span-5 flex flex-col space-y-6 h-[750px]">
+                
+                {/* Audio Player */}
+                {callData?.recording_url && (
+                  <div className="card card-body bg-slate-50 border-slate-200 shadow-inner flex flex-col gap-2 shrink-0">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Audio Recording</p>
+                    <audio controls className="w-full" src={callData.recording_url}>
+                      Your browser does not support the audio element.
+                    </audio>
+                  </div>
+                )}
+
+                <div className="card card-body flex flex-col flex-1 overflow-hidden">
+                  <h2 className="section-label flex items-center gap-2 text-lg border-b border-slate-100 pb-4 mb-4 shrink-0">
+                    <Zap className="h-5 w-5 text-brand-500" /> AI Analysis Matrix
+                  </h2>
+
+                  <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+
+                  {/* Extracted Data */}
+                  {callData?.custom_data && Object.keys(callData.custom_data).length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        <Database className="h-4 w-4 text-purple-500" /> Candidate Data Extracted
+                      </h3>
+                      <div className="bg-purple-50/50 p-4 rounded-xl border border-purple-100/50 space-y-2">
+                        {Object.entries(callData.custom_data).map(([key, value]) => (
+                          <div key={key} className="flex flex-col border-b border-purple-100/30 pb-2 last:border-0 last:pb-0">
+                            <span className="text-[10px] font-bold text-purple-600/70 uppercase tracking-wider">{key.replace(/_/g, " ")}</span>
+                            <span className="text-sm text-slate-800 font-medium">{String(value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary */}
+                  {callData?.summary && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2"><FileText className="h-4 w-4 text-emerald-500" /> Executive Summary</h3>
+                      <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100/50 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        {callData.summary}
+                      </div>
+                    </div>
+                  )}
+
+                  </div>
+
+                  {/* Analytics Grid (Retell Only) */}
+                  {callData?.provider === "retell" && (
+                    <div className="grid grid-cols-2 gap-3 pt-4 mt-4 border-t border-slate-100 shrink-0">
+                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 flex flex-col text-center">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Duration</p>
+                        <p className="text-base font-bold text-slate-800">{callData.duration_ms ? `${Math.round(callData.duration_ms / 1000)}s` : "—"}</p>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 flex flex-col text-center">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Sentiment</p>
+                        <p className="text-base font-bold text-brand-600 capitalize">{callData.user_sentiment || "Neutral"}</p>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 flex flex-col text-center">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Latency</p>
+                        <p className="text-base font-bold text-slate-800">{callData.latency_ms ? `${callData.latency_ms}ms` : "—"}</p>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-100 rounded-lg p-3 flex flex-col text-center">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Status</p>
+                        <p className={`text-xs font-bold mt-1 inline-flex items-center justify-center rounded-full ${callData.call_successful ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                          {callData.call_successful ? "Successful" : "Ended"}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
-          </div>
+          )}
         </div>
 
       </div>

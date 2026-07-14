@@ -61,7 +61,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
   const [decision, setDecision] = useState(initialDecision || searchParams.get("decision") || "");
   const [hrAction, setHrAction] = useState("");
   const [workflow, setWorkflow] = useState("");
-  const [vapiStatus, setVapiStatus] = useState("");
+  const [agentStatus, setAgentStatus] = useState("");
   const [selectedJob, setSelectedJob] = useState("");
   
   const [loading, setLoading]   = useState(true);
@@ -72,7 +72,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
   const [showFilters, setShowFilters] = useState(false);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const hasFilters = Boolean(decision || hrAction || workflow || vapiStatus);
+  const hasFilters = Boolean(decision || hrAction || workflow || agentStatus);
 
   useEffect(() => {
     if (jobId) {
@@ -82,7 +82,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
     }
   }, [jobId]);
 
-  const load = useCallback(async (p: number, q: string, dec: string, hrAct: string, flow: string, vStatus: string, jId: string) => {
+  const load = useCallback(async (p: number, q: string, dec: string, hrAct: string, flow: string, aStatus: string, jId: string) => {
     setLoading(true);
     try {
       const res = await apiClient.get("/admin/candidates", {
@@ -94,7 +94,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
           decision: dec || undefined,
           hr_action: hrAct || undefined,
           workflow_state: flow || undefined,
-          vapi_status: vStatus || undefined,
+          agent_status: aStatus || undefined,
         },
       });
       setCandidates(res.data.items ?? []);
@@ -109,10 +109,10 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      load(page, search, decision, hrAction, workflow, vapiStatus, selectedJob);
+      load(page, search, decision, hrAction, workflow, agentStatus, selectedJob);
     }, 300);
     return () => clearTimeout(timer);
-  }, [page, search, decision, hrAction, workflow, vapiStatus, selectedJob, load]);
+  }, [page, search, decision, hrAction, workflow, agentStatus, selectedJob, load]);
 
   function handleSearch(val: string) { setSearch(val); setPage(1); }
 
@@ -120,7 +120,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
     setDecision("");
     setHrAction("");
     setWorkflow("");
-    setVapiStatus("");
+    setAgentStatus("");
     setSelectedJob("");
     setPage(1);
     setSearch("");
@@ -148,9 +148,9 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
     setRunningPipeline(true);
     setPipelineSuccessMessage("");
     try {
-      const res = await apiClient.post(`/admin/jobs/${jobId}/batch-vapi-schedule`);
+      const res = await apiClient.post(`/admin/jobs/${jobId}/batch-agent-schedule`);
       setPipelineSuccessMessage(res.data.message);
-      load(page, search, decision, hrAction, workflow, selectedJob);
+      load(page, search, decision, hrAction, workflow, agentStatus, selectedJob);
     } catch (err: any) {
       alert(err.message || "Failed to run pipeline.");
     } finally {
@@ -193,7 +193,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
             className={`button-secondary ${hasFilters ? "ring-2 ring-brand-400" : ""}`}>
             <SlidersHorizontal className="h-4 w-4" /> Filters {hasFilters && <span className="ml-1 rounded-full bg-brand-600 px-1.5 py-0.5 text-2xs text-white">ON</span>}
           </button>
-          <button onClick={() => load(page, search, decision, hrAction, workflow, selectedJob)} disabled={loading} className="button-secondary">
+          <button onClick={() => load(page, search, decision, hrAction, workflow, agentStatus, selectedJob)} disabled={loading} className="button-secondary">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
           {jobId && candidates.some(c => c.application_status === "R1_READY") && (
@@ -254,8 +254,8 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
               </select>
             </div>
             <div className="space-y-1 min-w-[160px]">
-              <label className="text-xs font-semibold text-slate-600">Vapi Interview</label>
-              <select className="input text-sm" value={vapiStatus} onChange={e => { setVapiStatus(e.target.value); setPage(1); }}>
+              <label className="text-xs font-semibold text-slate-600">R1 Interview</label>
+              <select className="input text-sm" value={agentStatus} onChange={e => { setAgentStatus(e.target.value); setPage(1); }}>
                 <option value="">All</option>
                 <option value="Scheduled">Scheduled</option>
                 <option value="Completed">Completed</option>
@@ -288,7 +288,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                   <th>HR Action</th>
                   <th>Status</th>
                   <th>Evaluated At</th>
-                  <th>Vapi Interview</th>
+                  <th>R1 Interview</th>
                   <th>R1 Result</th>
                 </tr>
               </thead>
@@ -325,7 +325,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                     </td>
                     <td>
                       {c.validator_decision === "REVIEW" ? (
-                        <HrActionCell appId={c.application_id} currentAction={c.hr_action} status={c.application_status} onRefresh={() => load(page, search, decision, hrAction, workflow, selectedJob)} />
+                        <HrActionCell appId={c.application_id} currentAction={c.hr_action} status={c.application_status} onRefresh={() => load(page, search, decision, hrAction, workflow, agentStatus, selectedJob)} />
                       ) : (
                         <span className="text-slate-400 text-sm">—</span>
                       )}
@@ -338,7 +338,7 @@ export default function JobApplicationsPage({ jobId, initialDecision }: { jobId?
                     <td className="text-xs text-slate-500">{fmt(c.evaluated_at)}</td>
                     <td>
                       {(c.application_status === "R1_READY" || c.application_status.toLowerCase() === "shortlisted") && (
-                        <ScheduleVapiInterviewButton appId={c.application_id} />
+                        <ScheduleAgentInterviewButton appId={c.application_id} />
                       )}
                     </td>
                     <td>
@@ -430,11 +430,11 @@ function HrActionCell({ appId, currentAction, status, onRefresh }: { appId: stri
   );
 }
 
-function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
+function ScheduleAgentInterviewButton({ appId }: { appId: string }) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string>("none");
   const [webCallUrl, setWebCallUrl] = useState<string | null>(null);
-  const [vapiData, setVapiData] = useState<any>(null);
+  const [agentData, setAgentData] = useState<any>(null);
 
   useEffect(() => {
     checkStatus();
@@ -450,12 +450,12 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
 
   async function checkStatus() {
     try {
-      const res = await apiClient.get(`/admin/candidates/${appId}/vapi-status`);
+      const res = await apiClient.get(`/admin/candidates/${appId}/agent-status`);
       const data = res.data;
       if (data.status !== "none") {
         setStatus(data.status);
         if (data.web_call_url) setWebCallUrl(data.web_call_url);
-        if (data.status === "ended") setVapiData(data);
+        if (data.status === "ended") setAgentData(data);
       }
     } catch (err) {
       console.error(err);
@@ -467,11 +467,11 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
   async function scheduleInterview() {
     setLoading(true);
     try {
-      const res = await apiClient.post(`/admin/candidates/${appId}/vapi-schedule`);
+      const res = await apiClient.post(`/admin/candidates/${appId}/agent-schedule`);
       setStatus("queued");
       setWebCallUrl(res.data.web_call_url);
     } catch (err: any) {
-      alert("Failed to schedule Vapi interview: " + (err?.response?.data?.detail || err.message));
+      alert("Failed to schedule R1 interview: " + (err?.response?.data?.detail || err.message));
     } finally {
       setLoading(false);
     }
@@ -479,29 +479,21 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
 
   if (loading) return <div className="h-7 flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>;
 
-  if (status === "ended" && vapiData) {
+  if (status === "ended" && agentData) {
     return (
-      <div className="flex flex-col gap-1 items-start">
-        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-          <Check className="h-3 w-3" /> Completed
+      <div className="flex flex-col gap-1.5 items-start">
+        <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-xs font-medium whitespace-nowrap shadow-sm bg-emerald-500 text-white shadow-emerald-500/20 cursor-default">
+          <Check className="h-3.5 w-3.5" /> Completed
         </span>
-        <button onClick={() => alert("Transcript:\n\n" + (vapiData.transcript || "No transcript available."))} className="text-[10px] text-brand-600 hover:underline">
-          View Transcript
-        </button>
-        {vapiData.recording_url && (
-          <a href={vapiData.recording_url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 hover:underline">
-            Listen Audio
-          </a>
-        )}
       </div>
     );
   }
 
   if (!["none", "ended", "error", "failed", "canceled"].includes(status)) {
     return (
-      <div className="flex flex-col gap-1 items-start">
-        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-          <Loader2 className="h-3 w-3 animate-spin" /> {status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ")}
+      <div className="flex flex-col gap-1.5 items-start">
+        <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-xs font-medium whitespace-nowrap shadow-sm bg-amber-500 text-white shadow-amber-500/20 cursor-default">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> {status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ")}
         </span>
         {webCallUrl && (
           <a href={webCallUrl} target="_blank" rel="noreferrer" className="text-[10px] text-brand-600 hover:underline font-medium flex items-center gap-1 mt-0.5">
@@ -518,7 +510,7 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
       disabled={loading}
       className="button-primary text-xs h-7 px-3 bg-brand-600 hover:bg-brand-700 text-white border-transparent whitespace-nowrap shadow-sm shadow-brand-600/20"
     >
-      Schedule R1 Interview
+      Schedule Interview
     </button>
   );
 }

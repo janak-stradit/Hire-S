@@ -171,17 +171,17 @@ export default function JobDetailPage() {
   const [filterDecision, setFilterDecision] = useState<string>("");
   const [filterScoreBand, setFilterScoreBand] = useState<string>("");
   const [filterFreshness, setFilterFreshness] = useState<string>("");
-  const [filterVapiStatus, setFilterVapiStatus] = useState<string>("");
+  const [filterAgentStatus, setFilterAgentStatus] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
-  const hasFilters = Boolean(filterDecision || filterScoreBand || filterFreshness || filterVapiStatus);
+  const hasFilters = Boolean(filterDecision || filterScoreBand || filterFreshness || filterAgentStatus);
 
   const loadImported = useCallback(async () => {
     try {
-      const params = filterVapiStatus ? { vapi_status: filterVapiStatus } : {};
+      const params = filterAgentStatus ? { agent_status: filterAgentStatus } : {};
       const res = await apiClient.get(`/jobs/${requirementId}/imported-candidates`, { params });
       setImportedCandidates(res.data.candidates || []);
     } catch { /* ignore error */ }
-  }, [requirementId, filterVapiStatus]);
+  }, [requirementId, filterAgentStatus]);
 
   useEffect(() => {
     (async () => {
@@ -261,9 +261,9 @@ export default function JobDetailPage() {
     setPipelineSuccessMessage("");
     setScanError("");
     try {
-      const res = await apiClient.post(`/admin/jobs/${job.job_id}/batch-vapi-schedule`);
+      const res = await apiClient.post(`/admin/jobs/${job.job_id}/batch-agent-schedule`);
       setPipelineSuccessMessage(res.data.message);
-      // Refetch imported candidates to get updated vapi_status
+      // Refetch imported candidates to get updated agent_status
       const importedRes = await apiClient.get(`/jobs/${requirementId}/imported-candidates`);
       setImportedCandidates(importedRes.data.candidates || []);
     } catch (err: any) {
@@ -541,15 +541,15 @@ export default function JobDetailPage() {
                   </select>
                 </div>
                 <div className="space-y-1 min-w-[140px]">
-                  <label className="text-xs font-semibold text-slate-600">Vapi Interview</label>
-                  <select className="input text-sm py-1.5" value={filterVapiStatus} onChange={e => setFilterVapiStatus(e.target.value)}>
+                  <label className="text-xs font-semibold text-slate-600">R1 Interview</label>
+                  <select className="input text-sm py-1.5" value={filterAgentStatus} onChange={e => setFilterAgentStatus(e.target.value)}>
                     <option value="">All</option>
                     <option value="Scheduled">Scheduled</option>
                     <option value="Completed">Completed</option>
                   </select>
                 </div>
                 {hasFilters && (
-                  <button onClick={() => { setFilterDecision(""); setFilterScoreBand(""); setFilterFreshness(""); setFilterVapiStatus(""); }} className="button-secondary text-xs h-fit py-1.5">
+                  <button onClick={() => { setFilterDecision(""); setFilterScoreBand(""); setFilterFreshness(""); setFilterAgentStatus(""); }} className="button-secondary text-xs h-fit py-1.5">
                     <X className="h-3.5 w-3.5" /> Clear
                   </button>
                 )}
@@ -578,7 +578,7 @@ export default function JobDetailPage() {
                     <th>Validator Decision</th>
                     <th>HR Action</th>
                     <th>Status</th>
-                    <th>Vapi Interview</th>
+                    <th>R1 Interview</th>
                     <th>R1 Result</th>
                   </tr>
                 </thead>
@@ -652,7 +652,7 @@ export default function JobDetailPage() {
                       </td>
                       <td>
                         {c.is_imported && c.application_id && (c.application_status === "R1_READY" || c.application_status?.toLowerCase() === "shortlisted") ? (
-                          <ScheduleVapiInterviewButton appId={c.application_id} />
+                          <ScheduleAgentInterviewButton appId={c.application_id} />
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
                         )}
@@ -696,32 +696,29 @@ export default function JobDetailPage() {
   );
 }
 
-function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
+function ScheduleAgentInterviewButton({ appId }: { appId: string }) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string>("none");
   const [webCallUrl, setWebCallUrl] = useState<string | null>(null);
-  const [vapiData, setVapiData] = useState<any>(null);
+  const [agentData, setAgentData] = useState<any>(null);
 
   useEffect(() => {
     checkStatus();
-  }, [appId]);
-
-  useEffect(() => {
-    let interval: any;
-    if (!["none", "ended", "error", "failed", "canceled"].includes(status)) {
-      interval = setInterval(checkStatus, 3000);
+    let interval: NodeJS.Timeout;
+    if (["queued", "ringing", "in-progress"].includes(status)) {
+      interval = setInterval(checkStatus, 5000);
     }
     return () => clearInterval(interval);
-  }, [status]);
+  }, [appId, status]);
 
   async function checkStatus() {
     try {
-      const res = await apiClient.get(`/admin/candidates/${appId}/vapi-status`);
+      const res = await apiClient.get(`/admin/candidates/${appId}/agent-status`);
       const data = res.data;
       if (data.status !== "none") {
         setStatus(data.status);
-        if (data.web_call_url) setWebCallUrl(data.web_call_url);
-        if (data.status === "ended") setVapiData(data);
+        setWebCallUrl(data.web_call_url);
+        if (data.status === "ended") setAgentData(data);
       }
     } catch (err) {
       console.error(err);
@@ -733,11 +730,12 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
   async function scheduleInterview() {
     setLoading(true);
     try {
-      const res = await apiClient.post(`/admin/candidates/${appId}/vapi-schedule`);
+      const res = await apiClient.post(`/admin/candidates/${appId}/agent-schedule`);
       setStatus("queued");
       setWebCallUrl(res.data.web_call_url);
+      setAgentData(null);
     } catch (err: any) {
-      alert("Failed to schedule Vapi interview: " + (err?.response?.data?.detail || err.message));
+      alert("Failed to schedule R1 interview: " + (err?.response?.data?.detail || err.message));
     } finally {
       setLoading(false);
     }
@@ -745,20 +743,10 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
 
   if (loading) return <div className="h-7 flex items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-slate-400" /></div>;
 
-  if (status === "ended" && vapiData) {
+  if (status === "ended" && agentData) {
     return (
-      <div className="flex flex-col gap-1 items-start">
-        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-          <Check className="h-3 w-3" /> Completed
-        </span>
-        <button onClick={() => alert("Transcript:\n\n" + (vapiData.transcript || "No transcript available."))} className="text-[10px] text-brand-600 hover:underline">
-          View Transcript
-        </button>
-        {vapiData.recording_url && (
-          <a href={vapiData.recording_url} target="_blank" rel="noreferrer" className="text-[10px] text-blue-600 hover:underline">
-            Listen Audio
-          </a>
-        )}
+      <div className="button-primary text-xs h-7 px-3 bg-emerald-600 text-white border-transparent whitespace-nowrap shadow-sm shadow-emerald-600/20 cursor-default inline-flex items-center gap-1.5 hover:bg-emerald-600">
+        <Check className="h-4 w-4" /> Completed
       </div>
     );
   }
@@ -784,7 +772,7 @@ function ScheduleVapiInterviewButton({ appId }: { appId: string }) {
       disabled={loading}
       className="button-primary text-xs h-7 px-3 bg-brand-600 hover:bg-brand-700 text-white border-transparent whitespace-nowrap shadow-sm shadow-brand-600/20"
     >
-      Schedule R1 Interview
+      Schedule Interview
     </button>
   );
 }

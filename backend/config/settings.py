@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     bedrock_model_id: str = "anthropic.claude-3-haiku-20240307-v1:0"
     vapi_api_key: str | None = None
     vapi_private_key: str | None = None
+    retell_api_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
