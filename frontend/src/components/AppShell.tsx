@@ -39,13 +39,13 @@ const ROLE_LABEL: Record<string, string> = {
 function NavLink({ item, collapsed, active }: { item: NavItem; collapsed: boolean; active: boolean }) {
   return (
     <Link href={item.to} title={item.label}
-      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-205 ${
         active
-          ? "bg-brand-600 text-white shadow-md shadow-brand-900/30"
-          : "text-slate-400 hover:bg-white/[0.07] hover:text-slate-100"
+          ? "bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-lg shadow-brand-500/20 scale-[1.02]"
+          : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-100 hover:translate-x-1"
       } ${collapsed ? "justify-center px-2.5" : ""}`}
     >
-      <item.icon className={`h-[18px] w-[18px] flex-shrink-0 transition-colors ${active ? "text-white" : "text-slate-500 group-hover:text-slate-300"}`} />
+      <item.icon className={`h-[18px] w-[18px] flex-shrink-0 transition-all duration-200 ${active ? "text-white scale-110" : "text-slate-500 group-hover:text-slate-300 group-hover:scale-110"}`} />
       {!collapsed && <span className="truncate">{item.label}</span>}
       {!collapsed && item.badge && (
         <span className="ml-auto rounded-full bg-brand-500/30 px-2 py-0.5 text-2xs font-semibold text-brand-300">{item.badge}</span>
@@ -93,13 +93,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Logo */}
         <div className={`flex h-[64px] flex-shrink-0 items-center ${collapsed ? "justify-center px-2" : "gap-3 px-4"}`}
           style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-brand-600 shadow-lg shadow-brand-900/50">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 via-indigo-500 to-violet-600 shadow-lg shadow-brand-500/25 ring-1 ring-white/10">
             <Building2 className="h-[18px] w-[18px] text-white" />
           </div>
           {!collapsed && (
             <>
               <div className="min-w-0 flex-1">
-                <p className="text-base font-extrabold leading-none tracking-tight text-white">HireX</p>
+                <p className="text-base font-extrabold leading-none tracking-tight text-white font-display">HireX</p>
                 <p className="mt-0.5 text-2xs font-semibold uppercase tracking-widest text-slate-500">Talent Ops</p>
               </div>
               <button onClick={toggleSidebar} title="Collapse"
@@ -135,10 +135,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               <div className="my-4" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }} />
               <p className="mb-2 px-2 text-2xs font-bold uppercase tracking-widest text-slate-600">System</p>
               <Link href="/settings"
-                className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
-                  pathname === "/settings" ? "bg-brand-600 text-white shadow-md shadow-brand-900/30" : "text-slate-400 hover:bg-white/[0.07] hover:text-slate-100"
+                className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                  pathname === "/settings" ? "bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-lg shadow-brand-500/20 scale-[1.02]" : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-100 hover:translate-x-1"
                 }`}>
-                <Settings className="h-[18px] w-[18px] flex-shrink-0 text-slate-500 group-hover:text-slate-300" />
+                <Settings className={`h-[18px] w-[18px] flex-shrink-0 transition-all duration-200 ${pathname === "/settings" ? "text-white scale-110" : "text-slate-500 group-hover:text-slate-300 group-hover:scale-110"}`} />
                 <span>Settings</span>
               </Link>
             </>
@@ -155,7 +155,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
           ) : (
             <div className="flex items-center gap-3 rounded-xl px-2 py-2.5">
-              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-brand-600/20 text-xs font-bold text-brand-400 ring-1 ring-brand-500/30">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500/20 to-indigo-500/20 text-xs font-bold text-brand-400 ring-1 ring-brand-500/30 shadow-inner">
                 {initials}
               </div>
               <div className="min-w-0 flex-1">
@@ -175,20 +175,20 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className={`flex min-h-screen flex-1 flex-col transition-[margin] duration-200 ease-in-out ${collapsed ? "md:ml-[72px]" : "md:ml-[264px]"}`}>
 
         {/* Top bar */}
-        <header className="sticky top-0 z-20 flex h-[64px] items-center gap-4 border-b border-slate-200 bg-white/90 px-6 backdrop-blur-md">
+        <header className="sticky top-0 z-20 flex h-[64px] items-center gap-4 border-b border-slate-100 bg-white/80 px-6 backdrop-blur-md">
           <div className="flex-1">
             <div className="relative hidden max-w-sm sm:block z-50">
               <GlobalSearch />
             </div>
           </div>
           <div className="flex items-center gap-2.5">
-            <button type="button" aria-label="Notifications" className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-card-xs transition hover:bg-slate-50">
+            <button type="button" aria-label="Notifications" className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm transition hover:bg-slate-50">
               <Bell className="h-[18px] w-[18px] text-slate-500" />
               <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-brand-600 ring-2 ring-white" />
             </button>
-            <div className="h-7 w-px bg-slate-200" />
-            <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-card-xs">
-              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-brand-100 text-2xs font-bold text-brand-700">
+            <div className="h-7 w-px bg-slate-200/80" />
+            <div className="flex items-center gap-2.5 rounded-xl border border-slate-200/80 bg-white px-3 py-1.5 shadow-sm transition hover:bg-slate-50 cursor-pointer">
+              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-100 to-indigo-100 text-2xs font-bold text-brand-700 ring-1 ring-brand-200/35">
                 {initials}
               </div>
               <span className="hidden text-sm font-semibold text-slate-700 sm:block">{email || ROLE_LABEL[role]}</span>
@@ -275,7 +275,7 @@ function GlobalSearch() {
           if (e.target.value.length >= 2) setOpen(true);
         }}
         onFocus={() => { if (query.length >= 2) setOpen(true); }}
-        className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-brand-400 focus:bg-white focus:ring-[3px] focus:ring-brand-500/15" 
+        className="w-full rounded-xl border border-slate-200 bg-slate-50/60 py-2 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all duration-200 focus:border-brand-400 focus:bg-white focus:ring-[4px] focus:ring-brand-500/10 focus:shadow-md" 
       />
       
       {open && (query.length >= 2) && (

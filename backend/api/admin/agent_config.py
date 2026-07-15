@@ -165,7 +165,7 @@ async def get_agent_config(
             system_prompt=DEFAULT_PROMPT,
             transcriber_model="deepgram",
             voice_provider="vapi",
-            llm_model="claude-3-haiku-20240307"
+            llm_model="gpt-4o"
         )
         session.add(config)
         await session.commit()
@@ -273,9 +273,19 @@ async def update_agent_config(
                 if data.first_speaker == "user":
                     prompt_text += "\n\nIMPORTANT: Wait for the user to speak first before saying anything. Do not say anything until the user has spoken."
 
+                valid_retell_models = {
+                    "gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", 
+                    "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5.1", "gpt-5.2", "gpt-5.4", 
+                    "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.5", "gpt-5.6-terra", "gpt-5.6-luna", 
+                    "claude-4.0-sonnet", "claude-4.5-sonnet", "claude-4.6-sonnet", "claude-5-sonnet", 
+                    "claude-4.5-haiku", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash", 
+                    "gemini-2.5-flash-lite", "gemini-3.0-flash", "gemini-3.1-flash-lite", "gemini-3.5-flash"
+                }
+                model_to_use = data.llm_model if data.llm_model in valid_retell_models else "gpt-4o"
+
                 llm_payload: dict[str, Any] = {
                     "general_prompt": prompt_text,
-                    "model": data.llm_model if data.llm_model.startswith(("gpt-", "claude-")) else "gpt-4o"
+                    "model": model_to_use
                 }
                 
                 if config.retell_llm_id:
@@ -285,6 +295,7 @@ async def update_agent_config(
                         json=llm_payload
                     )
                     if llm_resp.status_code >= 400:
+                        print("RETELL LLM UPDATE ERROR:", llm_resp.text)
                         raise HTTPException(status_code=400, detail=f"Retell LLM update error: {llm_resp.text}")
                 else:
                     llm_payload["general_tools"] = []
@@ -294,6 +305,7 @@ async def update_agent_config(
                         json=llm_payload
                     )
                     if llm_resp.status_code >= 400:
+                        print("RETELL LLM CREATE ERROR:", llm_resp.text)
                         raise HTTPException(status_code=400, detail=f"Retell LLM creation error: {llm_resp.text}")
                     if llm_resp.status_code == 201:
                         llm_data = llm_resp.json()
@@ -353,6 +365,7 @@ async def update_agent_config(
                             json=agent_payload
                         )
                         if agent_resp.status_code >= 400:
+                            print("RETELL AGENT UPDATE ERROR:", agent_resp.text)
                             raise HTTPException(status_code=400, detail=f"Retell Agent update error: {agent_resp.text}")
                     else:
                         agent_resp = await client.post(
@@ -361,6 +374,7 @@ async def update_agent_config(
                             json=agent_payload
                         )
                         if agent_resp.status_code >= 400:
+                            print("RETELL AGENT CREATE ERROR:", agent_resp.text)
                             raise HTTPException(status_code=400, detail=f"Retell Agent creation error: {agent_resp.text}")
                         if agent_resp.status_code == 201:
                             cast(Any, config).retell_agent_id = agent_resp.json().get("agent_id")
